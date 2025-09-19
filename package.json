@@ -1,0 +1,35 @@
+{
+	"name": "doc-por-lotes",
+	"version": "1.0.0",
+	"type": "module",
+	"scripts": {
+		"build": "tsc",
+		"start": "node dist/main.js"
+	},
+	"dependencies": {
+		"@puppeteer/browsers": "^2.10.10",
+		"@types/pdfmake": "^0.2.11",
+		"cli-progress": "^3.12.0",
+		"docx-pdf": "^0.0.1",
+		"docxtemplater": "^3.66.3",
+		"exceljs": "^4.4.0",
+		"googleapis": "^160.0.0",
+		"handlebars": "^4.7.8",
+		"jspdf": "^3.0.3",
+		"jszip": "^3.10.1",
+		"mammoth": "^1.11.0",
+		"officegen": "^0.6.5",
+		"p-limit": "^7.1.1",
+		"pdf-lib": "^1.17.1",
+		"pdfkit": "^0.17.2",
+		"pdfmake": "^0.2.20",
+		"pizzip": "^3.2.0",
+		"puppeteer": "^24.22.0"
+	},
+	"devDependencies": {
+		"@types/cli-progress": "^3.11.6",
+		"@types/node": "^24.5.2",
+		"@types/p-limit": "^2.2.0",
+		"@types/pdfkit": "^0.17.3"
+	}
+}
