@@ -1,35 +1,39 @@
 {
-	"name": "doc-por-lotes",
-	"version": "1.0.0",
-	"type": "module",
-	"scripts": {
-		"build": "tsc",
-		"start": "node dist/main.js"
-	},
-	"dependencies": {
-		"@puppeteer/browsers": "^2.10.10",
-		"@types/pdfmake": "^0.2.11",
-		"cli-progress": "^3.12.0",
-		"docx-pdf": "^0.0.1",
-		"docxtemplater": "^3.66.3",
-		"exceljs": "^4.4.0",
-		"googleapis": "^160.0.0",
-		"handlebars": "^4.7.8",
-		"jspdf": "^3.0.3",
-		"jszip": "^3.10.1",
-		"mammoth": "^1.11.0",
-		"officegen": "^0.6.5",
-		"p-limit": "^7.1.1",
-		"pdf-lib": "^1.17.1",
-		"pdfkit": "^0.17.2",
-		"pdfmake": "^0.2.20",
-		"pizzip": "^3.2.0",
-		"puppeteer": "^24.22.0"
-	},
-	"devDependencies": {
-		"@types/cli-progress": "^3.11.6",
-		"@types/node": "^24.5.2",
-		"@types/p-limit": "^2.2.0",
-		"@types/pdfkit": "^0.17.3"
-	}
+  "name": "generador-documentos-masivo",
+  "version": "2.0.0",
+  "description": "Generador masivo de documentos desde Google Sheets con plantillas Word/Excel",
+  "main": "dist/generar.js",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx generar.ts",
+    "build": "tsc",
+    "start": "node dist/generar.js",
+    "clean": "rimraf dist",
+    "tipo": "tsx generar.ts --help"
+  },
+  "keywords": ["documentos", "plantillas", "google-sheets", "word", "excel", "pdf"],
+  "author": "Tu Nombre",
+  "license": "MIT",
+  "dependencies": {
+    "googleapis": "^128.0.0",
+    "pizzip": "^3.1.6",
+    "docxtemplater": "^3.44.0",
+    "exceljs": "^4.4.0",
+    "commander": "^11.1.0",
+    "chalk": "^5.3.0",
+    "inquirer": "^9.2.12",
+    "cli-progress": "^3.12.0",
+    "ora": "^7.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/inquirer": "^9.0.7",
+    "@types/cli-progress": "^3.11.5",
+    "tsx": "^4.6.2",
+    "typescript": "^5.3.3",
+    "rimraf": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
 }
