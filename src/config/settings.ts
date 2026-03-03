@@ -10,7 +10,7 @@ const projectRoot = join(__dirname, '../..');
 export const CONFIG: ConfiguracionApp = {
   // 👈 GOOGLE SHEETS
   SPREADSHEET_ID: "1sMu2QaY2kAy1h-V0YiKhZ2jD6VnEbYaCRXm72Fj_r58",
-  RANGE: "'Hoja1'!C2:Z",
+  RANGE: "'Hoja1'!B2:Z",
   LIMITE_PERSONAS: 500,
 
   // 👈 LIBREOFFICE
@@ -22,22 +22,23 @@ export const CONFIG: ConfiguracionApp = {
   PLANTILLAS: [
     {
       nombre: "certificado_trabajo",
-      archivo: join(projectRoot, "plantillas/Carta certificado de trabajo TEDO 2025.docx"),
+      archivo: join(projectRoot, "plantillas/certificado de trabajo.docx"),
       tipo: "word",
       descripcion: "Certificado de trabajo oficial"
     },
     {
-      nombre: "credenciales",
-      archivo: join(projectRoot, "plantillas/06 FORM 006.xlsx"),
-      tipo: "excel",
-      descripcion: "Formulario de credenciales"
-    },
-    /* {
-      nombre: "constancia_estudios",
-      archivo: join(projectRoot, "plantillas/constancia_estudios.docx"),
+      nombre: "carta adjudicacion",
+      archivo: join(projectRoot, "plantillas/carta adjudicacion.docx"),
       tipo: "word",
-      descripcion: "Constancia de estudios"
+      descripcion: "Carta De Adjudicacion"
     },
+    {
+      nombre: "Declaracion Jurada de Imcompatibilidad",
+      archivo: join(projectRoot, "plantillas/Declaracion.xlsx"),
+      tipo: "excel",
+      descripcion: "Declaracion Jurada de Imcompatibilidad de operadores"
+    },
+    /* 
     {
       nombre: "diploma",
       archivo: join(projectRoot, "plantillas/diploma_template.docx"),

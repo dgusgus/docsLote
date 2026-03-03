@@ -5,13 +5,14 @@ export type ModoEjecucion = "todos" | "rango" | "especifico";
 
 // ====================== INTERFACES ======================
 export interface Persona {
-  apellido2: string;
+  grupo: string;
   nombre: string;
   apellido1: string;
-  email?: string;
-  telefono?: string;
+  apellido2: string;
   documento?: string;
-  curso?: string;
+  telefono?: string;
+  email?: string;
+  cargo?: string;
   fecha_inicio?: string;
   fecha_fin?: string;
   [key: string]: any; // Para campos adicionales dinámicos

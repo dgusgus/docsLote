@@ -47,16 +47,17 @@ export class GoogleSheetsService {
       let personas = filas
         .filter((fila: any[]) => fila[1] && fila[1].trim()) // Debe tener nombre
         .map((fila: any[], indice: number): Persona => ({
-          indice: indice + 1, // Para referencia
-          apellido2: fila[0]?.toString().trim() || "",
+          indice: indice + 1, // Para referencia,
+          grupo: fila[0]?.toString().trim() || "",
           nombre: fila[1]?.toString().trim() || "",
           apellido1: fila[2]?.toString().trim() || "",
-          email: fila[3]?.toString().trim() || "",
-          telefono: fila[4]?.toString().trim() || "",
-          documento: fila[5]?.toString().trim() || "",
-          curso: fila[6]?.toString().trim() || "",
-          fecha_inicio: fila[7]?.toString().trim() || "",
-          fecha_fin: fila[8]?.toString().trim() || "",
+          apellido2: fila[3]?.toString().trim() || "",
+          documento: fila[4]?.toString().trim() || "",
+          telefono: fila[5]?.toString().trim() || "",
+          email: fila[6]?.toString().trim() || "",
+          cargo: fila[7]?.toString().trim() || "",
+          fecha_inicio: fila[8]?.toString().trim() || "",
+          fecha_fin: fila[9]?.toString().trim() || "",
         }));
 
       // Aplicar filtros

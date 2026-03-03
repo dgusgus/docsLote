@@ -7,7 +7,7 @@ import { PDFConverter } from '../services/pdfConverter.js';
 import { CONFIG, PATHS } from '../config/settings.js';
 import { Logger, crearDirectorioSeguro, limpiarNombre, limpiarArchivosTemporales } from '../utils/fileUtils.js';
 import { OpcionesEjecucion, Persona, ResultadoProceso, ResultadoPersona } from '../types/index.js';
-
+import { existsSync } from 'fs';
 // ====================== PROCESADOR PRINCIPAL ======================
 export class ProcesadorPrincipal {
   private sheetsService = new GoogleSheetsService();
@@ -151,8 +151,20 @@ export class ProcesadorPrincipal {
     opciones: OpcionesEjecucion,
     outputDir: string
   ): Promise<ResultadoPersona> {
-    
-    const nombreBase = limpiarNombre(persona.nombre);
+
+    // 👇 NUEVO: índice + grupo + apellido1 + apellido2 + nombre
+    const partes = [
+      persona.indice?.toString(),
+      persona.grupo,
+      persona.apellido1,
+      persona.apellido2,
+      persona.nombre,
+      persona.documento
+    ]
+      .filter(Boolean)           // elimina vacíos/undefined
+      .map(p => limpiarNombre(p!)); // limpia acentos y espacios
+
+    const nombreBase = partes.join('_');
     const dirUsuario = path.join(outputDir, nombreBase);
     
     const resultado: ResultadoPersona = {

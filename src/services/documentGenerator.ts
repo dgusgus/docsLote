@@ -116,14 +116,14 @@ export class DocumentGenerator {
 
   private aplicarMapeoDefaultExcel(worksheet: ExcelJS.Worksheet, datos: Persona): void {
     // Mapeo genérico para plantillas sin configuración específica
-    const celdas = ['A1', 'B1', 'C1', 'A2', 'B2', 'C2'];
+    const celdas = ['C8', 'M8', 'U8', 'H10', 'H16', 'U16'];
     const valores = [
       datos.nombre,
       datos.apellido1,
       datos.apellido2,
-      datos.email,
+      datos.documento,
       datos.telefono,
-      datos.documento
+      datos.email
     ];
 
     celdas.forEach((celda, index) => {

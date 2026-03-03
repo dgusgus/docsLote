@@ -329,3 +329,9 @@ Para problemas específicos:
 ---
 
 ¡Listo para generar documentos en masa! 🎉
+
+
+para iniciar proyecto
+pnpm run dev
+
+
