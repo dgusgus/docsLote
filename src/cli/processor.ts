@@ -8,11 +8,16 @@ import { CONFIG, PATHS } from '../config/settings.js';
 import { Logger, crearDirectorioSeguro, limpiarNombre, limpiarArchivosTemporales } from '../utils/fileUtils.js';
 import { OpcionesEjecucion, Persona, ResultadoProceso, ResultadoPersona } from '../types/index.js';
 import { existsSync } from 'fs';
+/* poner qr a los pdfs */
+import { QRStamper } from '../services/qrStamper.js';
+
 // ====================== PROCESADOR PRINCIPAL ======================
 export class ProcesadorPrincipal {
   private sheetsService = new GoogleSheetsService();
   private docGenerator = new DocumentGenerator();
   private pdfConverter = PDFConverter.obtenerInstancia();
+  /* poner qr a los pdfs */
+  private qrStamper = new QRStamper();
 
   async ejecutar(opciones: OpcionesEjecucion): Promise<ResultadoProceso> {
     const inicioTiempo = Date.now();
@@ -194,6 +199,27 @@ export class ProcesadorPrincipal {
           const mensajeError = error instanceof Error ? error.message : String(error);
           resultado.erroresDetallados.push(`${plantilla.nombre}: ${mensajeError}`);
           Logger.error(`  ❌ ${plantilla.nombre}: ${mensajeError}`);
+        }
+      }
+
+      // Limpiar archivos temporales si es necesario
+/*       if (opciones.tipoSalida === 'solo-pdf') {
+        await limpiarArchivosTemporales(dirUsuario, ['.docx', '.xlsx']);
+      } */
+
+      // Estampar QR en los PDFs generados
+      if (opciones.tipoSalida !== 'solo-originals') {
+        const qrResult = await this.qrStamper.estamparQREnCarpeta(
+          dirUsuario,
+          persona,
+          resultado.documentosGenerados   // solo las plantillas que se procesaron con éxito
+        );
+
+        if (qrResult.exitosos > 0) {
+          Logger.success(`  📱 QR incrustado en ${qrResult.exitosos} PDF(s)`);
+        }
+        if (qrResult.errores > 0) {
+          Logger.warn(`  ⚠️  QR stamp falló en ${qrResult.errores} PDF(s)`);
         }
       }
 

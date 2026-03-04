@@ -1,248 +1,392 @@
-generar0.ts 
-es la version mas basica pero funiona 
---------------------------------------------------------------------------------------
-# 🚀 Generador Masivo de Documentos v2.0
+# 📄 Generador Masivo de Documentos
 
-Genera documentos en masa desde Google Sheets usando plantillas Word/Excel con conversión automática a PDF.
+Herramienta de línea de comandos que lee datos desde **Google Sheets** y genera automáticamente documentos Word, Excel, PDF y códigos QR en masa, uno por cada persona registrada en la hoja de cálculo.
 
-## ⚡ Características Principales
+---
 
-- **📊 Integración Google Sheets**: Lee datos directamente desde tus formularios
-- **📄 Plantillas dinámicas**: Soporte para Word (.docx) y Excel (.xlsx)
-- **🔄 Conversión PDF automática**: Usando LibreOffice headless
-- **🎯 Múltiples modos**: Todos, por rango, o persona específica
-- **⚙️ CLI intuitiva**: Modo interactivo y comandos directos
-- **🔧 Modular**: Código organizado y extensible
-- **📊 Reportes detallados**: Estadísticas y manejo de errores
+## ¿Qué hace este proyecto?
 
-## 📋 Requisitos Previos
+Imagina que tenés 200 empleados y necesitás generar para cada uno: un certificado de trabajo, una carta de adjudicación y una declaración jurada — todo en PDF y con sus datos correctos. Este proyecto lo hace automáticamente en minutos.
 
-### 1. Software Requerido
-```bash
-# Node.js 18+
-node --version  # Debe ser >= 18.0.0
+El flujo completo es:
 
-# LibreOffice (para conversión PDF)
-# Windows: Descargar desde https://www.libreoffice.org/
-# Linux: sudo apt install libreoffice
-# Mac: brew install --cask libreoffice
+```
+Google Sheets (datos) → Plantillas Word/Excel → Documentos personalizados → PDF
+                                                                          → QR code
 ```
 
-### 2. Credenciales Google Sheets
-1. Crear proyecto en [Google Cloud Console](https://console.cloud.google.com/)
-2. Habilitar Google Sheets API
-3. Crear cuenta de servicio y descargar JSON
-4. Renombrar archivo a `generador-docs-31f4b831a196.json`
+---
 
-## 🛠️ Instalación Paso a Paso
+## Estructura del proyecto
 
-### Paso 1: Clonar y configurar
+```
+doc-por-lotes/
+│
+├── generar.ts              ← Punto de entrada principal (documentos Word/Excel/PDF)
+├── generarQR.ts            ← Script independiente para generar QR codes
+│
+├── plantillas/             ← Tus archivos .docx y .xlsx con marcadores [[campo]]
+│   ├── certificado de trabajo.docx
+│   ├── carta adjudicacion.docx
+│   └── Declaracion.xlsx
+│
+├── docs_generados/         ← Salida: documentos generados (se crea automáticamente)
+│   └── 1_grupo_apellido1_apellido2_nombre/
+│       ├── certificado_trabajo.docx
+│       ├── certificado_trabajo.pdf
+│       └── ...
+│
+├── qrs_generados/          ← Salida: QR codes (se crea automáticamente)
+│   └── 1_grupo_apellido1_apellido2_nombre/
+│       └── qr.png
+│
+├── src/
+│   ├── cli/
+│   │   ├── commands.ts     ← Define todos los comandos CLI (todos, rango, persona...)
+│   │   └── processor.ts    ← Orquesta el procesamiento persona por persona
+│   │
+│   ├── config/
+│   │   └── settings.ts     ← ⚙️ CONFIGURACIÓN CENTRAL (editar aquí para personalizar)
+│   │
+│   ├── services/
+│   │   ├── googleSheets.ts     ← Conecta y lee datos de Google Sheets
+│   │   ├── documentGenerator.ts← Rellena plantillas Word y Excel con los datos
+│   │   ├── pdfConverter.ts     ← Convierte archivos a PDF usando LibreOffice
+│   │   └── qrGenerator.ts      ← Genera QR codes PNG por persona
+│   │
+│   ├── types/
+│   │   └── index.ts        ← Tipos TypeScript (Persona, PlantillaConfig, etc.)
+│   │
+│   └── utils/
+│       └── fileUtils.ts    ← Utilidades: Logger, limpiarNombre, crear directorios
+│
+├── generador-docs-31f4b831a196.json  ← 🔑 Credenciales Google (NO subir a git)
+├── package.json
+└── tsconfig.json
+```
+
+---
+
+## Requisitos previos
+
+### 1. Node.js 18 o superior
 ```bash
-# Clonar el repositorio
-git clone <tu-repo>
+node --version   # debe mostrar v18.x.x o mayor
+```
+
+### 2. pnpm
+```bash
+npm install -g pnpm
+```
+
+### 3. LibreOffice (solo si vas a generar PDFs)
+- **Windows:** Descargar desde [libreoffice.org](https://www.libreoffice.org/)
+- **Linux:** `sudo apt install libreoffice`
+- **Mac:** `brew install --cask libreoffice`
+
+### 4. Credenciales de Google Sheets
+1. Ir a [Google Cloud Console](https://console.cloud.google.com/)
+2. Crear un proyecto nuevo
+3. Habilitar la **Google Sheets API**
+4. Crear una **cuenta de servicio** y descargar el archivo JSON
+5. Renombrar el archivo a `generador-docs-31f4b831a196.json` y ponerlo en la raíz del proyecto
+6. En tu Google Sheet, compartir la hoja con el email de la cuenta de servicio (aparece en el JSON como `client_email`)
+
+---
+
+## Instalación
+
+```bash
+# 1. Clonar el repositorio
+git clone <url-del-repo>
 cd doc-por-lotes
 
-# Instalar dependencias
+# 2. Instalar dependencias
 pnpm install
 
-# Compilar TypeScript
-pnpm run build
+# 3. Verificar que todo esté configurado
+pnpm run verificar
 ```
 
-### Paso 2: Configurar plantillas
-```bash
-# Crear carpeta de plantillas
-mkdir plantillas
+---
 
-# Agregar tus archivos .docx y .xlsx
-cp /ruta/a/tus/plantillas/* plantillas/
-```
+## Configuración
 
-### Paso 3: Configurar settings
-Editar `src/config/settings.ts`:
+Todo se configura en **`src/config/settings.ts`**. Es el único archivo que necesitás tocar para adaptar el proyecto a tus datos.
+
+### ID del Google Sheet
 
 ```typescript
-export const CONFIG = {
-  // Tu ID de Google Sheets
-  SPREADSHEET_ID: "tu-spreadsheet-id-aqui",
-  
-  // Rango de datos (ajustar según tu hoja)
-  RANGE: "'Hoja1'!C2:Z",
-  
-  // Ruta LibreOffice (ajustar si es necesario)
-  SOFFICE_PATH: "C:\\Program Files\\LibreOffice\\program\\soffice.exe",
-  
-  // Configurar tus plantillas
-  PLANTILLAS: [
-    {
-      nombre: "certificado",
-      archivo: "plantillas/certificado.docx",
-      tipo: "word",
-      descripcion: "Certificado de participación"
-    },
-    // ... más plantillas
-  ]
-};
+SPREADSHEET_ID: "1sMu2QaY2kAy1h-V0YiKhZ2jD6VnEbYaCRXm72Fj_r58",
+RANGE: "'Hoja1'!B2:Z",   // columna B fila 2 en adelante
 ```
 
-## 🎮 Modos de Uso
+Para encontrar el ID: en la URL de tu hoja de cálculo es la parte entre `/d/` y `/edit`.
 
-### 1. 🎯 Modo Interactivo (Recomendado para principiantes)
-```bash
-# Ejecutar sin parámetros abre el modo interactivo
-pnpm run dev
-# o
-tsx generar.ts
+### Columnas esperadas del Google Sheet
+
+El sistema lee las columnas en este orden a partir de la columna B:
+
+| Columna | Campo | Descripción |
+|---------|-------|-------------|
+| B | grupo | Grupo o área del empleado |
+| C | nombre | Nombre de pila |
+| D | apellido1 | Primer apellido |
+| E | apellido2 | Segundo apellido |
+| F | documento | CI o número de documento |
+| G | telefono | Teléfono de contacto |
+| H | email | Correo electrónico |
+| I | cargo | Cargo o puesto |
+| J | fecha_inicio | Fecha de inicio |
+| K | fecha_fin | Fecha de fin |
+
+### Ruta de LibreOffice
+
+```typescript
+// Windows (por defecto)
+SOFFICE_PATH: "C:\\Program Files\\LibreOffice\\program\\soffice.exe"
+
+// Linux / Mac (por defecto si no es Windows)
+SOFFICE_PATH: "/usr/bin/libreoffice"
 ```
 
-### 2. ⚡ Comandos Directos (Para usuarios avanzados)
+### Plantillas
 
-#### Procesar todas las personas
-```bash
-# Todas las plantillas, ambos formatos
-tsx generar.ts todos
-
-# Solo PDFs (más rápido)
-tsx generar.ts todos --tipo solo-pdf
-
-# Limitar cantidad
-tsx generar.ts todos --limite 10
-
-# Directorio personalizado
-tsx generar.ts todos --output ./mis_documentos
+```typescript
+PLANTILLAS: [
+  {
+    nombre: "certificado_trabajo",           // nombre interno (sin espacios)
+    archivo: "plantillas/certificado de trabajo.docx",  // ruta al archivo
+    tipo: "word",                            // "word" o "excel"
+    descripcion: "Certificado de trabajo oficial"
+  },
+  {
+    nombre: "mi_excel",
+    archivo: "plantillas/formulario.xlsx",
+    tipo: "excel",
+    descripcion: "Formulario Excel"
+  },
+]
 ```
 
-#### Procesar por rango
-```bash
-# Personas 1 a 50
-tsx generar.ts rango --inicio 1 --fin 50
+---
 
-# Con plantillas específicas
-tsx generar.ts rango --inicio 1 --fin 10 --plantillas "certificado,diploma"
-
-# Solo originales (sin PDF)
-tsx generar.ts rango --inicio 1 --fin 5 --tipo solo-originals
-```
-
-#### Procesar persona específica
-```bash
-# Por nombre
-tsx generar.ts persona --nombre "Juan Pérez"
-
-# Nombre parcial
-tsx generar.ts persona --nombre "María" --tipo solo-pdf
-
-# Con plantillas específicas
-tsx generar.ts persona --nombre "Ana" --plantillas "certificado,credenciales"
-```
-
-### 3. 📊 Comandos de Información
-
-```bash
-# Listar personas disponibles
-tsx generar.ts listar --limite 20
-
-# Ver plantillas configuradas
-tsx generar.ts plantillas
-
-# Verificar configuración del sistema
-tsx generar.ts verificar
-
-# Estadísticas de Google Sheets
-tsx generar.ts estadisticas
-
-# Ayuda general
-tsx generar.ts --help
-```
-
-## 🎨 Configuración de Plantillas
+## Cómo hacer las plantillas
 
 ### Plantillas Word (.docx)
-Usa marcadores con doble corchetes:
+
+Usá doble corchete para marcar dónde va cada dato:
+
 ```
-[[nombre]] [[apellido1]] [[apellido2]]
-[[fecha_actual]] [[año_actual]]
-[[nombre_completo]] [[email]]
+Yo, [[nombre_completo]], con documento [[documento]], 
+trabajo en el cargo de [[cargo]] desde el [[fecha_inicio]].
+
+Firmado el [[fecha_actual_larga]].
 ```
 
+**Variables disponibles automáticamente:**
+
+| Marcador | Resultado ejemplo |
+|----------|-------------------|
+| `[[nombre]]` | Juan |
+| `[[apellido1]]` | Pérez |
+| `[[apellido2]]` | López |
+| `[[nombre_completo]]` | Juan Pérez López |
+| `[[apellidos_completos]]` | Pérez López |
+| `[[iniciales]]` | J.P.L. |
+| `[[documento]]` | 12345678 |
+| `[[cargo]]` | Técnico |
+| `[[telefono]]` | 70123456 |
+| `[[telefono_formateado]]` | 701-234-56 |
+| `[[email]]` | juan@correo.com |
+| `[[email_dominio]]` | correo.com |
+| `[[fecha_inicio]]` | 01/01/2024 |
+| `[[fecha_fin]]` | 31/12/2024 |
+| `[[fecha_actual]]` | 04/03/2026 |
+| `[[fecha_actual_larga]]` | miércoles, 4 de marzo de 2026 |
+| `[[año_actual]]` | 2026 |
+| `[[mes_actual]]` | marzo |
+| `[[codigo_unico]]` | JUPE4521 |
+| `[[grupo]]` | Área Técnica |
+
 ### Plantillas Excel (.xlsx)
-Configura el mapeo en `settings.ts`:
+
+Para Excel, los datos se escriben en celdas específicas. Configurás el mapeo en `settings.ts`:
+
 ```typescript
-export const MAPEOS_EXCEL = {
-  mi_plantilla: {
-    nombre: "A1",
-    apellido1: "B1", 
-    apellido2: "C1",
-    email: "D1"
+export const MAPEOS_EXCEL: Record<string, Record<string, string>> = {
+  mi_plantilla: {       // debe coincidir con el "nombre" de la plantilla
+    nombre: "C8",       // el campo "nombre" va en la celda C8
+    apellido1: "M8",
+    apellido2: "U8",
+    documento: "H10",
+    cargo: "H16",
   }
 };
 ```
 
-### Variables Automáticas Disponibles
-```typescript
-// Datos básicos
-[[nombre]] [[apellido1]] [[apellido2]]
-[[email]] [[telefono]] [[documento]]
+Si tu plantilla Excel no tiene un mapeo configurado, el sistema usa un mapeo genérico por defecto.
 
-// Combinaciones
-[[nombre_completo]]        // "Juan Pérez López"
-[[apellidos_completos]]    // "Pérez López"
-[[iniciales]]              // "J.P.L."
+---
 
-// Fechas
-[[fecha_actual]]           // "15/12/2024"
-[[fecha_actual_larga]]     // "viernes, 15 de diciembre de 2024"
-[[año_actual]]             // 2024
-[[mes_actual]]             // "diciembre"
+## Uso — Generador de documentos
 
-// Utilidades
-[[codigo_unico]]           // "JUPE1234"
-[[telefono_formateado]]    // "123-456-7890"
-[[email_dominio]]          // "gmail.com"
+> **Nota:** Como `tsx` no está en el PATH global, todos los comandos se ejecutan con `pnpm run`.
+
+### Comandos disponibles
+
+```bash
+# Modo interactivo (recomendado para empezar)
+pnpm run dev
+
+# Ver ayuda
+pnpm run tipo
 ```
 
-## 📁 Estructura de Salida
+Los demás comandos pasan argumentos con `--` después del nombre del script:
+
+```bash
+# Procesar TODAS las personas
+pnpm run dev -- todos
+
+# Procesar un rango (personas 1 a 50)
+pnpm run dev -- rango --inicio 1 --fin 50
+
+# Procesar una persona específica por nombre
+pnpm run dev -- persona --nombre "Juan Perez"
+
+# Solo generar PDFs (más rápido, requiere LibreOffice)
+pnpm run dev -- todos --tipo solo-pdf
+
+# Solo documentos originales Word/Excel (sin PDF, no requiere LibreOffice)
+pnpm run dev -- todos --tipo solo-originals
+
+# Usar plantillas específicas solamente
+pnpm run dev -- rango --inicio 1 --fin 10 --plantillas "certificado_trabajo,carta adjudicacion"
+
+# Guardar en una carpeta personalizada
+pnpm run dev -- todos --output ./mis_documentos
+
+# Listar personas disponibles en el Sheet
+pnpm run dev -- listar --limite 20
+
+# Ver plantillas configuradas
+pnpm run dev -- plantillas
+
+# Verificar que todo esté bien configurado
+pnpm run verificar
+
+# Ver estadísticas del Sheet
+pnpm run dev -- estadisticas
+```
+
+### Estructura de salida
 
 ```
 docs_generados/
-├── juan_perez/
-│   ├── certificado.docx
-│   ├── certificado.pdf
-│   ├── credenciales.xlsx
-│   └── credenciales.pdf
-├── maria_gonzalez/
-│   ├── certificado.docx
-│   ├── certificado.pdf
-│   └── ...
-└── ...
+└── 1_area_tecnica_perez_lopez_juan_12345678/
+    ├── certificado_trabajo.docx
+    ├── certificado_trabajo.pdf
+    ├── carta adjudicacion.docx
+    ├── carta adjudicacion.pdf
+    ├── Declaracion Jurada de Imcompatibilidad.xlsx
+    └── Declaracion Jurada de Imcompatibilidad.pdf
 ```
 
-## 🔧 Configuraciones Avanzadas
+El nombre de la carpeta se arma automáticamente con: `índice_grupo_apellido1_apellido2_nombre_documento`.
 
-### Modo Producción (500+ personas)
-```typescript
-// En settings.ts
-export const CONFIG = {
-  LIMITE_PERSONAS: 500,
-  TIPO_SALIDA: "solo-pdf",        // Más rápido
-  LIMPIAR_TEMPORALES: true,       // Ahorra espacio
-  OUTPUT_DIR: "./produccion_masiva"
-};
-```
+---
 
-### Configuración por Lotes
+## Uso — Generador de QR
+
+Script completamente independiente. No requiere LibreOffice ni plantillas.
+
 ```bash
-# Procesar en chunks de 50
-tsx generar.ts rango --inicio 1 --fin 50
-tsx generar.ts rango --inicio 51 --fin 100
-tsx generar.ts rango --inicio 101 --fin 150
+# Generar QRs para TODOS
+pnpm run qr
+
+# Generar QRs para un rango
+pnpm run qr -- --rango 1 5
+
+# Generar QR para una persona
+pnpm run qr -- --nombre "Juan Perez"
+
+# Guardar en carpeta personalizada
+pnpm run qr -- --rango 1 50 --output ./qrs_evento
+
+# Ver ayuda
+pnpm run qr:ayuda
 ```
 
-## 🐛 Solución de Problemas
+### ¿Qué contiene cada QR?
 
-### Error: "LibreOffice no encontrado"
+Cada QR codifica texto plano con todos los datos de la persona:
+
+```
+GRUPO: Área Técnica
+NOMBRE: Juan
+APELLIDO 1: Pérez
+APELLIDO 2: López
+DOCUMENTO: 12345678
+CARGO: Técnico Especialista
+TELEFONO: 70123456
+EMAIL: juan@correo.com
+FECHA INICIO: 01/01/2024
+FECHA FIN: 31/12/2024
+```
+
+Es texto plano para que cualquier app de cámara o lector de QR pueda leerlo sin instalar nada especial.
+
+### Estructura de salida QR
+
+```
+qrs_generados/
+└── 1_area_tecnica_perez_lopez_juan_12345678/
+    └── qr.png   ← imagen PNG 400×400 px, lista para imprimir
+```
+
+---
+
+## Scripts de package.json
+
+| Comando | Qué hace |
+|---------|----------|
+| `pnpm run dev` | Modo interactivo del generador de documentos |
+| `pnpm run verificar` | Verifica Google Sheets, LibreOffice y plantillas |
+| `pnpm run qr` | Genera QRs para todas las personas |
+| `pnpm run qr:todos` | Alias de `qr` |
+| `pnpm run qr:ayuda` | Muestra ayuda del generador de QR |
+| `pnpm run build` | Compila TypeScript a JavaScript en `/dist` |
+| `pnpm run start` | Ejecuta la versión compilada |
+| `pnpm run clean` | Elimina la carpeta `/dist` |
+
+---
+
+## Rendimiento estimado
+
+| Tarea | Velocidad aproximada |
+|-------|---------------------|
+| Generar Word | 5–10 documentos/seg |
+| Generar Excel | 3–8 documentos/seg |
+| Convertir a PDF | 2–5 por segundo |
+| Generar QR | 20–50 por segundo |
+| 100 personas × 3 plantillas + PDF | ~5–10 minutos |
+
+---
+
+## Solución de problemas
+
+### `tsx` no reconocido
+Usá siempre `pnpm run <script>` en lugar de `tsx` directamente. El `tsx` está instalado localmente, no globalmente.
+
+### Error: Google Sheets — credenciales inválidas
+- Verificar que el archivo `.json` de credenciales esté en la raíz del proyecto
+- Confirmar que el `SPREADSHEET_ID` en `settings.ts` es correcto
+- Asegurarse de que la hoja está compartida con el email `client_email` del JSON
+
+### Error: LibreOffice no encontrado
 ```bash
-# Windows: Verificar instalación
+# Windows — verificar instalación
 "C:\Program Files\LibreOffice\program\soffice.exe" --version
 
 # Linux
@@ -251,87 +395,70 @@ which libreoffice
 # Mac
 /Applications/LibreOffice.app/Contents/MacOS/soffice --version
 ```
+Luego ajustar `SOFFICE_PATH` en `settings.ts`. Si no necesitás PDFs, usá `--tipo solo-originals`.
 
-### Error: "Google Sheets timeout"
-- Verificar conexión a internet
-- Revisar permisos del archivo JSON
-- Confirmar que el SPREADSHEET_ID es correcto
-
-### Error: "Plantilla no encontrada"
+### Error: Plantilla no encontrada
 ```bash
-# Verificar rutas
-tsx generar.ts plantillas
-tsx generar.ts verificar
+pnpm run dev -- plantillas    # muestra las rutas configuradas
+pnpm run verificar            # verifica cuáles existen realmente
 ```
+Verificar que las rutas en `settings.ts` coincidan exactamente con los archivos en la carpeta `plantillas/`.
 
-### Memoria insuficiente (500+ personas)
-```typescript
-// Reducir lote en settings.ts
-LIMITE_PERSONAS: 100,  // Procesar de a 100
-```
+### Marcadores `[[campo]]` no se reemplazan en Word
+- Asegurarse de que el marcador esté escrito exactamente con doble corchete
+- A veces Word parte el marcador en varios "runs" de texto internamente. Para evitarlo: escribir el marcador completo, seleccionarlo y pegarlo como texto sin formato
 
-## 📊 Scripts Útiles
-
-```json
-{
-  "scripts": {
-    "dev": "tsx generar.ts",
-    "build": "tsc",
-    "start": "node dist/generar.js", 
-    "interactivo": "tsx generar.ts interactivo",
-    "verificar": "tsx generar.ts verificar",
-    "stats": "tsx generar.ts estadisticas"
-  }
-}
-```
-
-## 🚀 Casos de Uso Recomendados
-
-### 1. Primera vez / Pruebas
-```bash
-# Verificar todo funciona
-tsx generar.ts verificar
-
-# Probar con pocas personas
-tsx generar.ts rango --inicio 1 --fin 3 --tipo ambos
-```
-
-### 2. Producción Normal
-```bash
-# Procesar todos con PDFs solamente (más rápido)
-tsx generar.ts todos --tipo solo-pdf --limite 200
-```
-
-### 3. Casos Especiales
-```bash
-# Regenerar documentos de una persona específica
-tsx generar.ts persona --nombre "Juan" --tipo ambos
-
-# Solo certificados para un rango
-tsx generar.ts rango --inicio 1 --fin 100 --plantillas "certificado"
-```
-
-## 📈 Rendimiento Esperado
-
-- **Documentos Word**: ~5-10 por segundo
-- **Documentos Excel**: ~3-8 por segundo  
-- **Conversión PDF**: ~2-5 por segundo
-- **500 personas × 5 plantillas**: ~15-30 minutos
-
-## 🆘 Soporte
-
-Para problemas específicos:
-1. Ejecutar `tsx generar.ts verificar`
-2. Revisar logs de errores
-3. Verificar configuración en `settings.ts`
-4. Probar con una sola persona primero
+### Los datos del Excel quedan en celdas incorrectas
+Revisar el mapeo en `MAPEOS_EXCEL` dentro de `settings.ts`. El nombre de la clave debe coincidir exactamente con el campo `nombre` de la plantilla en `CONFIG.PLANTILLAS`.
 
 ---
 
-¡Listo para generar documentos en masa! 🎉
+## Dependencias principales
 
+| Paquete | Para qué se usa |
+|---------|----------------|
+| `googleapis` | Leer datos de Google Sheets |
+| `docxtemplater` + `pizzip` | Rellenar plantillas Word con datos |
+| `exceljs` | Leer y escribir archivos Excel |
+| `qrcode` | Generar imágenes QR en PNG |
+| `commander` | Parsear argumentos de línea de comandos |
+| `inquirer` | Modo interactivo con preguntas en consola |
+| `chalk` | Colores en la consola |
+| `ora` | Spinners de carga |
+| `cli-progress` | Barra de progreso |
+| `tsx` | Ejecutar TypeScript directamente sin compilar |
 
-para iniciar proyecto
-pnpm run dev
+---
 
+## Archivos que NO se suben a git
 
+El `.gitignore` ya excluye:
+
+```
+node_modules/
+generador-docs-31f4b831a196.json   ← credenciales privadas
+plantillas/                         ← pueden tener info sensible
+docs_generados/                     ← salida generada
+qrs_generados/                      ← salida generada
+dist/
+temp/
+```
+
+---
+
+## Flujo de desarrollo recomendado
+
+Cuando hagas cambios o pruebes por primera vez:
+
+```bash
+# 1. Verificar que todo está bien
+pnpm run verificar
+
+# 2. Probar con pocas personas primero
+pnpm run dev -- rango --inicio 1 --fin 3 --tipo ambos
+
+# 3. Revisar los archivos generados en docs_generados/
+
+# 4. Si todo está bien, procesar todos
+pnpm run dev -- todos --tipo solo-pdf
+```
