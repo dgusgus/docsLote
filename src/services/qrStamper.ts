@@ -4,6 +4,7 @@ import { PDFDocument } from 'pdf-lib';
 import QRCode from 'qrcode';
 import { Persona } from '../types/index.js';
 import { Logger } from '../utils/fileUtils.js';
+import { CONFIG } from '../config/settings.js';
 
 // ====================== TIPOS ======================
 
@@ -283,7 +284,17 @@ export class QRStamper {
     let exitosos = 0;
     let errores  = 0;
 
-    for (const nombrePlantilla of plantillasActivas) {
+    // Filtrar solo las plantillas que tienen qr: true en settings.ts
+    const plantillasConQR = CONFIG.PLANTILLAS
+      .filter(p => p.qr === true && plantillasActivas.includes(p.nombre))
+      .map(p => p.nombre);
+
+    if (plantillasConQR.length === 0) {
+      Logger.info('  Ninguna plantilla activa tiene qr: true, se omite el estampado');
+      return { exitosos: 0, errores: 0 };
+    }
+
+    for (const nombrePlantilla of plantillasConQR) {
       // El PDF tiene el mismo nombre que la plantilla
       const rutaPDF = path.join(dirPersona, `${nombrePlantilla}.pdf`);
 

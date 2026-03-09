@@ -24,6 +24,9 @@ export interface PlantillaConfig {
   tipo: TipoPlantilla;
   campos?: string[]; // Campos específicos que usa esta plantilla
   descripcion?: string;
+
+  // 👇 NUEVO: controla si esta plantilla lleva QR incrustado en el PDF
+  qr?: boolean;  // true = sí lleva QR | false o ausente = no lleva QR
 }
 
 export interface ConfiguracionApp {

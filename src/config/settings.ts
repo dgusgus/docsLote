@@ -24,19 +24,22 @@ export const CONFIG: ConfiguracionApp = {
       nombre: "certificado_trabajo",
       archivo: join(projectRoot, "plantillas/certificado de trabajo.docx"),
       tipo: "word",
-      descripcion: "Certificado de trabajo oficial"
+      descripcion: "Certificado de trabajo oficial",
+      qr: true,   // 👈 este SÍ lleva QR
     },
     {
       nombre: "carta adjudicacion",
       archivo: join(projectRoot, "plantillas/carta adjudicacion.docx"),
       tipo: "word",
-      descripcion: "Carta De Adjudicacion"
+      descripcion: "Carta De Adjudicacion",
+      qr: true,
     },
     {
       nombre: "Declaracion Jurada de Imcompatibilidad",
       archivo: join(projectRoot, "plantillas/Declaracion.xlsx"),
       tipo: "excel",
-      descripcion: "Declaracion Jurada de Imcompatibilidad de operadores"
+      descripcion: "Declaracion Jurada de Imcompatibilidad de operadores",
+      qr: true,
     },
     /* 
     {
