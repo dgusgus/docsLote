@@ -157,19 +157,18 @@ export class ProcesadorPrincipal {
     outputDir: string
   ): Promise<ResultadoPersona> {
 
-    // 👇 NUEVO: índice + grupo + apellido1 + apellido2 + nombre
+    // DESPUÉS
     const partes = [
-      persona.indice?.toString(),
-      persona.grupo,
       persona.apellido1,
       persona.apellido2,
       persona.nombre,
       persona.documento
     ]
-      .filter(Boolean)           // elimina vacíos/undefined
-      .map(p => limpiarNombre(p!)); // limpia acentos y espacios
+      .filter(Boolean)
+      .map(p => limpiarNombre(p!));
 
-    const nombreBase = partes.join('_');
+    const grupo = limpiarNombre(persona.grupo || '');
+    const nombreBase = `G${grupo}_${partes.join('_')}`;
     const dirUsuario = path.join(outputDir, nombreBase);
     
     const resultado: ResultadoPersona = {

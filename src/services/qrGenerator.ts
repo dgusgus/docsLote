@@ -15,13 +15,15 @@ export class QRGenerator {
   private construirTextoQR(persona: Persona): string {
     const lineas: string[] = [];
 
-    if (persona.grupo)        lineas.push(`GRUPO: ${persona.grupo}`);
-    if (persona.nombre)       lineas.push(`NOMBRE: ${persona.nombre}`);
-    if (persona.apellido1)    lineas.push(`APELLIDO 1: ${persona.apellido1}`);
-    if (persona.apellido2)    lineas.push(`APELLIDO 2: ${persona.apellido2}`);
-    if (persona.documento)    lineas.push(`DOCUMENTO: ${persona.documento}`);
+    // DESPUÉS
+    const nombreCompleto = [persona.nombre, persona.apellido1, persona.apellido2]
+      .filter(Boolean).join(' ');
+
+    if (persona.grupo) lineas.push(`GRUPO: ${persona.grupo}`);
+    if (nombreCompleto) lineas.push(`NOMBRE: ${nombreCompleto}`);
+    if (persona.documento) lineas.push(`DOCUMENTO: ${persona.documento}`);
     if (persona.cargo)        lineas.push(`CARGO: ${persona.cargo}`);
-    if (persona.telefono)     lineas.push(`TELEFONO: ${persona.telefono}`);
+    if (persona.telefono)     lineas.push(`CELULAR: ${persona.telefono}`);
     if (persona.email)        lineas.push(`EMAIL: ${persona.email}`);
     if (persona.fecha_inicio) lineas.push(`FECHA INICIO: ${persona.fecha_inicio}`);
     if (persona.fecha_fin)    lineas.push(`FECHA FIN: ${persona.fecha_fin}`);
@@ -34,9 +36,8 @@ export class QRGenerator {
    * Mismo patrón que processor.ts: índice_grupo_apellido1_apellido2_nombre_documento
    */
   private obtenerNombreBase(persona: Persona): string {
+    // DESPUÉS
     const partes = [
-      persona.indice?.toString(),
-      persona.grupo,
       persona.apellido1,
       persona.apellido2,
       persona.nombre,
@@ -45,7 +46,8 @@ export class QRGenerator {
       .filter(Boolean)
       .map(p => limpiarNombre(p!));
 
-    return partes.join('_');
+    const grupo = limpiarNombre(persona.grupo || '');
+    return `G${grupo}_${partes.join('_')}`;
   }
 
   /**
@@ -64,13 +66,13 @@ export class QRGenerator {
 
       // SOLUCIÓN: Crear un buffer Latin-1 explícitamente
       // y usar un segmento de bytes en lugar de string directo
-      const bufferLatin1 = Buffer.from(texto, 'latin1');
+      //const bufferLatin1 = Buffer.from(texto, 'latin1');
 
     // La librería `qrcode` en Node.js pasa el string directamente como bytes UTF-8
     // al segmento de datos del QR. Para que los lectores lo interpreten correctamente
     // hay que forzar el modo ECI con charset 'UTF-8'. Sin esto asumen Latin-1
     // y los caracteres acentuados aparecen rotos o como símbolos raros.
-    await QRCode.toFile(rutaArchivo, texto, {
+    await QRCode.toFile(rutaArchivo, texto.normalize('NFC'), {
       type: 'png',
       errorCorrectionLevel: 'M',
       width: 400,
