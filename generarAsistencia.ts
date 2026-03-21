@@ -4,32 +4,40 @@
  * generarAsistencia.ts — Genera registros de asistencia por grupo
  *
  * Lee fecha_inicio y fecha_fin de cada persona desde Google Sheets.
- * Por cada grupo, genera un archivo .xlsx por cada día en el que
- * al menos una persona de ese grupo esté activa (dentro de su rango).
+ * Por cada grupo genera un archivo por día y opcionalmente un PDF unificado.
  *
  * ESTRUCTURA DE SALIDA:
  *   asistencia_generada/
  *     grupo_1/
- *       01-03-2026.xlsx   ← solo las personas activas ese día
- *       02-03-2026.xlsx
- *       ...
- *     grupo_26/
  *       01-03-2026.xlsx
+ *       01-03-2026.pdf
+ *       02-03-2026.pdf
+ *       grupo_1_COMPLETO.pdf   ← todos los días unidos en orden
+ *     grupo_26/
+ *       ...
+ *       grupo_26_COMPLETO.pdf
  *
  * USO:
- *   tsx generarAsistencia.ts                  → todos los grupos, fechas desde el Sheet
- *   tsx generarAsistencia.ts --grupo 26       → solo grupo 26
- *   tsx generarAsistencia.ts --output ./salida
+ *   tsx generarAsistencia.ts                        → Excel + PDF por día + PDF unificado
+ *   tsx generarAsistencia.ts --tipo solo-excel      → solo .xlsx por día
+ *   tsx generarAsistencia.ts --tipo solo-pdf        → solo .pdf por día + PDF unificado
+ *   tsx generarAsistencia.ts --tipo ambos           → .xlsx y .pdf por día + PDF unificado
+ *   tsx generarAsistencia.ts --sin-unificar         → no genera el PDF unificado
+ *   tsx generarAsistencia.ts --grupo 26
+ *   tsx generarAsistencia.ts --output ./mi_salida
  *   tsx generarAsistencia.ts --help
  *
  * FORMATO DE FECHAS EN EL SHEET: DD/MM/YYYY o DD-MM-YYYY
  */
 
 import path from 'path';
+import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
 import chalk from 'chalk';
 import ExcelJS from 'exceljs';
+import { PDFDocument } from 'pdf-lib';
 import { GoogleSheetsService } from './src/services/googleSheets.js';
+import { PDFConverter } from './src/services/pdfConverter.js';
 import { Logger, crearDirectorioSeguro } from './src/utils/fileUtils.js';
 import { CONFIG } from './src/config/settings.js';
 import { Persona } from './src/types/index.js';
@@ -40,12 +48,10 @@ const __dirname  = path.dirname(__filename);
 const PLANTILLA_ASISTENCIA = path.join(__dirname, 'plantillas/Registro de asistencia OPERADORES.xlsx');
 const OUTPUT_DEFAULT        = path.join(__dirname, 'asistencia_generada');
 
+type TipoSalida = 'solo-excel' | 'solo-pdf' | 'ambos';
+
 // ====================== UTILIDADES DE FECHA ======================
 
-/**
- * Parsea DD/MM/YYYY o DD-MM-YYYY → Date.
- * Devuelve null si el formato es inválido o está vacío.
- */
 function parsearFechaSheet(str: string | undefined): Date | null {
   if (!str || !str.trim()) return null;
   const normalizado = str.trim().replace(/\//g, '-');
@@ -65,7 +71,6 @@ function formatearFecha(d: Date): string {
   ].join('-');
 }
 
-/** Devuelve todas las fechas DD-MM-YYYY entre inicio y fin, inclusive. */
 function rangoFechas(inicio: Date, fin: Date): string[] {
   const fechas: string[] = [];
   const cur = new Date(inicio);
@@ -76,7 +81,6 @@ function rangoFechas(inicio: Date, fin: Date): string[] {
   return fechas;
 }
 
-/** True si la persona está activa en esa fecha. */
 function estaActiva(persona: Persona, fecha: string): boolean {
   const inicio = parsearFechaSheet(persona.fecha_inicio);
   const fin    = parsearFechaSheet(persona.fecha_fin);
@@ -85,15 +89,53 @@ function estaActiva(persona: Persona, fecha: string): boolean {
   return d >= inicio && d <= fin;
 }
 
+// ====================== UNIFICADOR DE PDFs ======================
+
+/**
+ * Une una lista de archivos PDF en un solo PDF, en el orden dado.
+ * Usa pdf-lib que ya está instalado en el proyecto.
+ */
+async function unificarPDFs(rutasPDF: string[], rutaSalida: string): Promise<void> {
+  const pdfUnificado = await PDFDocument.create();
+
+  for (const rutaPDF of rutasPDF) {
+    const bytes    = await fs.readFile(rutaPDF);
+    const pdfOrigen = await PDFDocument.load(bytes);
+    const paginas  = await pdfUnificado.copyPages(pdfOrigen, pdfOrigen.getPageIndices());
+    paginas.forEach(pagina => pdfUnificado.addPage(pagina));
+  }
+
+  const bytesFinales = await pdfUnificado.save();
+  await fs.writeFile(rutaSalida, bytesFinales);
+}
+
 // ====================== ARGUMENTOS ======================
 
-interface Args { grupo: string | null; outputDir: string; }
+interface Args {
+  grupo:      string | null;
+  outputDir:  string;
+  tipo:       TipoSalida;
+  unificar:   boolean;
+}
 
 function parsearArgs(): Args {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) { mostrarAyuda(); process.exit(0); }
   const get = (flag: string) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : null; };
-  return { grupo: get('--grupo'), outputDir: get('--output') || OUTPUT_DEFAULT };
+
+  const tipoRaw = get('--tipo') || 'ambos';
+  const tiposValidos: TipoSalida[] = ['solo-excel', 'solo-pdf', 'ambos'];
+  if (!tiposValidos.includes(tipoRaw as TipoSalida)) {
+    Logger.error(`--tipo inválido: "${tipoRaw}". Opciones: solo-excel, solo-pdf, ambos`);
+    process.exit(1);
+  }
+
+  return {
+    grupo:     get('--grupo'),
+    outputDir: get('--output') || OUTPUT_DEFAULT,
+    tipo:      tipoRaw as TipoSalida,
+    unificar:  !argv.includes('--sin-unificar'),
+  };
 }
 
 function mostrarAyuda(): void {
@@ -102,23 +144,26 @@ function mostrarAyuda(): void {
 ║  📋 GENERADOR DE REGISTROS DE ASISTENCIA POR GRUPO           ║
 ╚══════════════════════════════════════════════════════════════╝
 `));
-  console.log('Las fechas se leen directamente desde el Google Sheets (columnas J y K).');
-  console.log('Se genera un archivo por cada día en que al menos una persona esté activa.');
+  console.log('Las fechas se leen desde Google Sheets (columnas J=fecha_inicio, K=fecha_fin).');
   console.log('');
   console.log('USO:');
-  console.log('  tsx generarAsistencia.ts');
-  console.log('  tsx generarAsistencia.ts --grupo 26');
-  console.log('  tsx generarAsistencia.ts --output ./mi_salida');
+  console.log('  tsx generarAsistencia.ts                        Excel + PDF + unificado');
+  console.log('  tsx generarAsistencia.ts --tipo solo-excel      Solo .xlsx por día');
+  console.log('  tsx generarAsistencia.ts --tipo solo-pdf        Solo .pdf por día + unificado');
+  console.log('  tsx generarAsistencia.ts --tipo ambos           .xlsx + .pdf + unificado');
+  console.log('  tsx generarAsistencia.ts --sin-unificar         Sin generar el PDF unificado');
+  console.log('  tsx generarAsistencia.ts --grupo 26             Filtrar por grupo');
+  console.log('  tsx generarAsistencia.ts --output ./mi_salida   Carpeta de salida');
   console.log('');
   console.log('ESTRUCTURA DE SALIDA:');
   console.log('  asistencia_generada/');
   console.log('    grupo_1/');
   console.log('      01-03-2026.xlsx');
-  console.log('      02-03-2026.xlsx');
+  console.log('      01-03-2026.pdf');
+  console.log('      02-03-2026.pdf');
+  console.log('      grupo_1_COMPLETO.pdf   ← todos los días en un solo PDF');
   console.log('    grupo_26/');
-  console.log('      01-03-2026.xlsx');
-  console.log('');
-  console.log('FORMATO DE FECHAS EN EL SHEET: DD/MM/YYYY o DD-MM-YYYY');
+  console.log('      grupo_26_COMPLETO.pdf');
 }
 
 // ====================== LÓGICA EXCEL ======================
@@ -151,13 +196,19 @@ function rellenarTabla(ws: ExcelJS.Worksheet, personas: Persona[], filaInicio: n
   }
 }
 
+/**
+ * Genera el Excel y lo convierte a PDF si corresponde.
+ * Devuelve la ruta del PDF generado (o null si no se generó).
+ */
 async function generarArchivo(
   plantillaPath: string,
   personasDelDia: Persona[],
   grupo: string,
   fecha: string,
-  outputDir: string
-): Promise<void> {
+  carpetaGrupo: string,
+  tipo: TipoSalida,
+  pdfConverter: PDFConverter
+): Promise<string | null> {
   const urbanos = personasDelDia.filter(p => normalizarTipo(p.tipo) === 'URBANO');
   const moviles = personasDelDia.filter(p => normalizarTipo(p.tipo) === 'MOVIL');
 
@@ -166,15 +217,26 @@ async function generarArchivo(
   const ws = wb.worksheets[0];
   if (!ws) throw new Error('La plantilla no tiene hojas de trabajo');
 
-  // E8 tiene fecha y grupo — E30 ya tiene =E8 en la plantilla
   ws.getCell('E8').value = `FECHA: ${fecha}${' '.repeat(50)}GRUPO: ${grupo}`;
-
   rellenarTabla(ws, urbanos.slice(0, MAX_OPERADORES), FILA_INICIO_URBANO);
   rellenarTabla(ws, moviles.slice(0, MAX_OPERADORES), FILA_INICIO_MOVIL);
 
-  const carpetaGrupo = path.join(outputDir, `grupo_${grupo.replace(/\s+/g, '_')}`);
-  await crearDirectorioSeguro(carpetaGrupo);
-  await wb.xlsx.writeFile(path.join(carpetaGrupo, `${fecha}.xlsx`));
+  const rutaXlsx = path.join(carpetaGrupo, `${fecha}.xlsx`);
+  await wb.xlsx.writeFile(rutaXlsx);
+
+  // Convertir a PDF
+  let rutaPDF: string | null = null;
+  if (tipo === 'solo-pdf' || tipo === 'ambos') {
+    await pdfConverter.convertirAPdf(rutaXlsx, carpetaGrupo);
+    rutaPDF = path.join(carpetaGrupo, `${fecha}.pdf`);
+
+    // Borrar xlsx si solo se quiere PDF
+    if (tipo === 'solo-pdf') {
+      await fs.unlink(rutaXlsx);
+    }
+  }
+
+  return rutaPDF;
 }
 
 // ====================== MAIN ======================
@@ -182,10 +244,25 @@ async function generarArchivo(
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n📋 GENERADOR DE REGISTROS DE ASISTENCIA\n'));
 
-  const { grupo, outputDir } = parsearArgs();
-  Logger.info('Fechas:  leídas desde Google Sheets (fecha_inicio / fecha_fin por persona)');
-  if (grupo) Logger.info(`Grupo:   ${grupo}`);
-  Logger.info(`Salida:  ${outputDir}\n`);
+  const { grupo, outputDir, tipo, unificar } = parsearArgs();
+
+  Logger.info('Fechas:    leídas desde Google Sheets (fecha_inicio / fecha_fin por persona)');
+  Logger.info(`Formato:   ${tipo}`);
+  Logger.info(`Unificar:  ${unificar && tipo !== 'solo-excel' ? 'sí → grupo_XX_COMPLETO.pdf' : 'no'}`);
+  if (grupo) Logger.info(`Grupo:     ${grupo}`);
+  Logger.info(`Salida:    ${outputDir}\n`);
+
+  // Verificar LibreOffice si se necesita PDF
+  const pdfConverter = PDFConverter.obtenerInstancia();
+  if (tipo !== 'solo-excel') {
+    const libreOfficeOk = await pdfConverter.verificarLibreOffice();
+    if (!libreOfficeOk) {
+      Logger.error('LibreOffice no encontrado. Necesario para generar PDFs.');
+      Logger.info('Usá --tipo solo-excel para omitir la conversión, o instalá LibreOffice.');
+      process.exit(1);
+    }
+    Logger.info('LibreOffice: ✅\n');
+  }
 
   // 1. Obtener personas
   const sheets = new GoogleSheetsService();
@@ -200,26 +277,25 @@ async function main(): Promise<void> {
 
   if (personas.length === 0) { Logger.warn('No se encontraron personas.'); process.exit(0); }
 
-  // 2. Filtrar por grupo si se indicó
+  // 2. Filtrar por grupo
   if (grupo) {
     personas = personas.filter(p => p.grupo?.toString().trim() === grupo.trim());
     if (personas.length === 0) { Logger.error(`No hay personas en el grupo "${grupo}"`); process.exit(1); }
   }
 
-  // 3. Advertir y excluir personas sin fechas válidas
+  // 3. Excluir personas sin fechas válidas
   const sinFechas = personas.filter(p => !parsearFechaSheet(p.fecha_inicio) || !parsearFechaSheet(p.fecha_fin));
   if (sinFechas.length > 0) {
-    Logger.warn(`${sinFechas.length} persona(s) sin fechas válidas en el Sheet (serán ignoradas):`);
+    Logger.warn(`${sinFechas.length} persona(s) sin fechas válidas (serán ignoradas):`);
     sinFechas.forEach(p =>
       Logger.warn(`   • ${p.nombre} ${p.apellido1} (grupo ${p.grupo}) — inicio: "${p.fecha_inicio}" fin: "${p.fecha_fin}"`)
     );
     console.log('');
   }
   personas = personas.filter(p => parsearFechaSheet(p.fecha_inicio) && parsearFechaSheet(p.fecha_fin));
-
   if (personas.length === 0) { Logger.error('Ninguna persona tiene fechas válidas.'); process.exit(1); }
 
-  // 4. Agrupar por número de grupo
+  // 4. Agrupar por grupo
   const porGrupo = new Map<string, Persona[]>();
   for (const p of personas) {
     const g = (p.grupo || 'SIN_GRUPO').toString().trim();
@@ -227,46 +303,63 @@ async function main(): Promise<void> {
     porGrupo.get(g)!.push(p);
   }
 
-  // 5. Por cada grupo: calcular días únicos → generar un archivo por día
+  // 5. Generar archivos
   let totalArchivos = 0;
   let exitosos = 0;
   let errores  = 0;
 
   for (const [g, miembros] of porGrupo) {
-
-    // Unión de todos los días en los que al menos alguien está activo
+    // Calcular días únicos del grupo
     const fechasSet = new Set<string>();
     for (const p of miembros) {
-      const inicio = parsearFechaSheet(p.fecha_inicio)!;
-      const fin    = parsearFechaSheet(p.fecha_fin)!;
-      rangoFechas(inicio, fin).forEach(f => fechasSet.add(f));
+      rangoFechas(parsearFechaSheet(p.fecha_inicio)!, parsearFechaSheet(p.fecha_fin)!)
+        .forEach(f => fechasSet.add(f));
     }
-    const fechasOrdenadas = [...fechasSet].sort(); // orden cronológico (YYYY es el último segmento, sort alfabético no funciona)
-    // Reordenar correctamente por fecha real
-    fechasOrdenadas.sort((a, b) => {
-      const toMs = (s: string) => parsearFechaSheet(s)!.getTime();
-      return toMs(a) - toMs(b);
-    });
+    const fechasOrdenadas = [...fechasSet].sort((a, b) =>
+      parsearFechaSheet(a)!.getTime() - parsearFechaSheet(b)!.getTime()
+    );
 
     totalArchivos += fechasOrdenadas.length;
-
     const nU = miembros.filter(p => normalizarTipo(p.tipo) === 'URBANO').length;
     const nM = miembros.filter(p => normalizarTipo(p.tipo) === 'MOVIL').length;
     console.log(chalk.bold(`\n📁 grupo_${g}/  (${miembros.length} personas: ${nU}U + ${nM}M | ${fechasOrdenadas.length} días)`));
 
+    const carpetaGrupo = path.join(outputDir, `grupo_${g.replace(/\s+/g, '_')}`);
+    await crearDirectorioSeguro(carpetaGrupo);
+
+    // PDFs generados en orden cronológico (para unificar después)
+    const pdfsDelGrupo: string[] = [];
+
     for (const fecha of fechasOrdenadas) {
-      // Solo las personas activas ese día específico
       const activos = miembros.filter(p => estaActiva(p, fecha));
       const u = activos.filter(p => normalizarTipo(p.tipo) === 'URBANO').length;
       const m = activos.filter(p => normalizarTipo(p.tipo) === 'MOVIL').length;
       try {
-        await generarArchivo(PLANTILLA_ASISTENCIA, activos, g, fecha, outputDir);
-        console.log(`   ✅ ${fecha}.xlsx  (${activos.length} activos: ${u}U + ${m}M)`);
+        const rutaPDF = await generarArchivo(
+          PLANTILLA_ASISTENCIA, activos, g, fecha, carpetaGrupo, tipo, pdfConverter
+        );
+        if (rutaPDF) pdfsDelGrupo.push(rutaPDF);
+        const iconos = [tipo !== 'solo-pdf' ? '📊' : '', rutaPDF ? '📄' : ''].filter(Boolean).join(' ');
+        console.log(`   ✅ ${fecha}  ${iconos}  (${activos.length} activos: ${u}U + ${m}M)`);
         exitosos++;
       } catch (err) {
-        console.log(`   ❌ ${fecha}.xlsx  — ${err}`);
+        console.log(`   ❌ ${fecha}  — ${err}`);
         errores++;
       }
+    }
+
+    // Unificar PDFs del grupo en un solo archivo
+    if (unificar && pdfsDelGrupo.length > 1) {
+      const rutaCompleto = path.join(carpetaGrupo, `grupo_${g}_COMPLETO.pdf`);
+      try {
+        await unificarPDFs(pdfsDelGrupo, rutaCompleto);
+        console.log(chalk.green(`   📎 grupo_${g}_COMPLETO.pdf  (${pdfsDelGrupo.length} días unidos)`));
+      } catch (err) {
+        Logger.warn(`   No se pudo unificar el PDF del grupo ${g}: ${err}`);
+      }
+    } else if (unificar && pdfsDelGrupo.length === 1) {
+      // Solo un día — no tiene sentido unificar, ya existe el PDF individual
+      console.log(chalk.gray(`   ℹ️  Un solo día, no se genera PDF unificado`));
     }
   }
 

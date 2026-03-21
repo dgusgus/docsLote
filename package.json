@@ -14,7 +14,9 @@
     "qr:todos": "tsx generarQR.ts",
     "qr:ayuda": "tsx generarQR.ts --help",
     "asistencia": "tsx generarAsistencia.ts",
-    "asistencia:ayuda": "tsx generarAsistencia.ts --help"
+    "asistencia:ayuda": "tsx generarAsistencia.ts --help",
+    "asistencia:pdf": "tsx generarAsistencia.ts --tipo solo-pdf",
+    "asistencia:excel": "tsx generarAsistencia.ts --tipo solo-excel"
   },
   "keywords": [
     "documentos",
