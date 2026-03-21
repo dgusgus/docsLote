@@ -41,13 +41,14 @@ export const CONFIG: ConfiguracionApp = {
       descripcion: "Declaracion Jurada de Imcompatibilidad de operadores",
       qr: true,
     },
-    /* 
     {
-      nombre: "diploma",
-      archivo: join(projectRoot, "plantillas/diploma_template.docx"),
-      tipo: "word",
-      descripcion: "Diploma de certificación"
+      nombre: "Registro de asistencia OPERADORES",
+      archivo: join(projectRoot, "plantillas/Registro de asistencia OPERADORES.xlsx"),
+      tipo: "excel",
+      descripcion: "Registro de asistencia para operadores",
+      qr: false,  // 👈 este NO lleva QR
     },
+      /* 
     {
       nombre: "evaluacion",
       archivo: join(projectRoot, "plantillas/evaluacion.xlsx"),

@@ -15,7 +15,9 @@ export interface Persona {
   cargo?: string;
   fecha_inicio?: string;
   fecha_fin?: string;
-  [key: string]: any; // Para campos adicionales dinámicos
+  tipo?: string;       // ← NUEVO: "URBANO" o "MOVIL"
+  unidad?: string;     // ← NUEVO: unidad/dirección (ej: "TIC'S")
+  [key: string]: any;  // Para campos adicionales dinámicos
 }
 
 export interface PlantillaConfig {

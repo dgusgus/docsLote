@@ -12,7 +12,9 @@
     "tipo": "tsx generar.ts --help",
     "qr": "tsx generarQR.ts",
     "qr:todos": "tsx generarQR.ts",
-    "qr:ayuda": "tsx generarQR.ts --help"
+    "qr:ayuda": "tsx generarQR.ts --help",
+    "asistencia": "tsx generarAsistencia.ts",
+    "asistencia:ayuda": "tsx generarAsistencia.ts --help"
   },
   "keywords": [
     "documentos",

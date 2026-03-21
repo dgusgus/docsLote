@@ -58,6 +58,7 @@ export class GoogleSheetsService {
           cargo: fila[7]?.toString().trim() || "",
           fecha_inicio: fila[8]?.toString().trim() || "",
           fecha_fin: fila[9]?.toString().trim() || "",
+          tipo: fila[10]?.toString().trim() || "",
         }));
 
       // Aplicar filtros
