@@ -7,33 +7,35 @@
  *   - Hoja "Hoja1"       → personas: grupo, nombre, apellidos, tipo (URBANO/MOVIL)
  *   - Hoja "Actividades" → eventos:  columna A=Fecha, B=Actividad, C=Ubicacion
  *
- * Por cada grupo × por cada actividad → un archivo .xlsx
+ * Flujo por cada grupo:
+ *   1. Genera un .xlsx por actividad  →  grupo_1/11-03-2026_SIMULACRO.xlsx
+ *   2. Convierte cada .xlsx a .pdf    →  grupo_1/11-03-2026_SIMULACRO.pdf  (temporal)
+ *   3. Mergea todos los PDFs ordenados por fecha → grupo_1/grupo_1.pdf
+ *   4. Elimina los PDFs intermedios y los xlsx
  *
  * ESTRUCTURA DE SALIDA:
  *   asistencia_generada/
  *     grupo_1/
- *       11-03-2026_SIMULACRO_NACIONAL_SIREPRE.xlsx
- *       12-03-2026_Prueba_local_SIREPRE.xlsx
+ *       grupo_1.pdf        ← todas las fechas en orden
  *     grupo_26/
- *       11-03-2026_SIMULACRO_NACIONAL_SIREPRE.xlsx
- *
- * CELDAS QUE SE ESCRIBEN:
- *   Bloque MOVIL  → E6 (tipo actividad), E8 (cargo), A9 (ubicación), E9 (fecha), I9 (grupo), filas 13-22
- *   Bloque URBANO → E29 (tipo actividad), E31 (cargo), E32 (fecha), I32 (grupo), filas 35-44
- *   (A29 = =A6  y  A32 = =A9  ya son fórmulas en la plantilla — no se tocan)
+ *       grupo_26.pdf
  *
  * USO:
  *   tsx generarAsistencia.ts
  *   tsx generarAsistencia.ts --grupo 26
- *   tsx generarAsistencia.ts --output ./mi_salida
+ *   tsx generarAsistencia.ts --keep-xlsx      → conserva los .xlsx generados
+ *   tsx generarAsistencia.ts --output ./salida
  *   tsx generarAsistencia.ts --help
  */
 
 import path from 'path';
+import fs from 'fs/promises';
 import { fileURLToPath } from 'url';
+import { spawn } from 'child_process';
 import chalk from 'chalk';
 import ExcelJS from 'exceljs';
 import { google } from 'googleapis';
+import { PDFDocument } from 'pdf-lib';
 import { Logger, crearDirectorioSeguro } from './src/utils/fileUtils.js';
 import { CONFIG, PATHS } from './src/config/settings.js';
 import { Persona } from './src/types/index.js';
@@ -44,24 +46,7 @@ const __dirname  = path.dirname(__filename);
 const PLANTILLA_PATH = path.join(__dirname, 'plantillas/LISTAS DE ASISTENCIA SIREPRE 2026.xlsx');
 const OUTPUT_DEFAULT = path.join(__dirname, 'asistencia_generada');
 
-// ====================== MAPA DE CELDAS DE LA PLANTILLA ======================
-//
-//  Bloque MOVIL (parte superior):
-//    E6  → "TIPO DE ACTIVIDAD: ..."
-//    E8  → "CARGO: Operador de Transmisión Móvil"
-//    A9  → "UBICACIÓN: ..."
-//    E9  → "FECHA: DD-MM-YYYY"
-//    I9  → "GRUPO:  XX"
-//    filas 13–22 (col A=nro, B=nombre, D=unidad)
-//
-//  Bloque URBANO (parte inferior):
-//    E29 → "TIPO DE ACTIVIDAD: ..."
-//    E31 → "CARGO: Operador de Transmisión Urbano"
-//    A29 → =A6  (fórmula en plantilla, NO se toca)
-//    A32 → =A9  (fórmula en plantilla, NO se toca)
-//    E32 → "FECHA: DD-MM-YYYY"
-//    I32 → "GRUPO:  XX"
-//    filas 35–44 (col A=nro, B=nombre, D=unidad)
+// ====================== MAPA DE CELDAS ======================
 
 const BLOQUE_MOVIL = {
   celdaTipoActividad: 'E6',
@@ -70,25 +55,24 @@ const BLOQUE_MOVIL = {
   celdaFecha:         'E9',
   celdaGrupo:         'I9',
   filaInicio:         13,
-  maxPersonas:        9,   // filas 13–22
+  maxPersonas:        9,
   cargoTexto:         'CARGO: Operador de Transmisión Móvil',
 };
 
 const BLOQUE_URBANO = {
   celdaTipoActividad: 'E29',
   celdaCargo:         'E31',
-  // A29 y A32 son fórmulas =A6 / =A9 — no se escriben
   celdaFecha:         'E32',
   celdaGrupo:         'I32',
   filaInicio:         35,
-  maxPersonas:        9,   // filas 35–44
+  maxPersonas:        9,
   cargoTexto:         'CARGO: Operador de Transmisión Urbano',
 };
 
 // ====================== TIPOS ======================
 
 interface Actividad {
-  fecha:     string;   // DD-MM-YYYY
+  fecha:     string;
   actividad: string;
   ubicacion: string;
 }
@@ -146,12 +130,16 @@ async function obtenerActividades(): Promise<Actividad[]> {
 
 // ====================== UTILIDADES ======================
 
-/** Acepta DD/MM/YYYY o DD-MM-YYYY → devuelve DD-MM-YYYY */
 function normalizarFecha(str: string): string {
   return str.replace(/\//g, '-');
 }
 
-/** Slug seguro para nombre de archivo */
+/** DD-MM-YYYY → YYYY-MM-DD para ordenar cronológicamente */
+function fechaParaOrdenar(fechaDDMMYYYY: string): string {
+  const [dd, mm, yyyy] = fechaDDMMYYYY.split('-');
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function slugActividad(str: string): string {
   return str
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -169,7 +157,7 @@ function normalizarTipo(tipo: string | undefined): 'URBANO' | 'MOVIL' | null {
   return null;
 }
 
-// ====================== LÓGICA EXCEL ======================
+// ====================== EXCEL ======================
 
 function rellenarTabla(
   ws: ExcelJS.Worksheet,
@@ -192,19 +180,18 @@ function rellenarTabla(
   }
 }
 
-async function generarArchivo(
-  moviles:   Persona[],
-  urbanos:   Persona[],
-  grupo:     string,
-  actividad: Actividad,
-  outputDir: string
-): Promise<void> {
+async function generarXlsx(
+  moviles:     Persona[],
+  urbanos:     Persona[],
+  grupo:       string,
+  actividad:   Actividad,
+  carpetaGrupo: string
+): Promise<string> {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(PLANTILLA_PATH);
   const ws = wb.worksheets[0];
   if (!ws) throw new Error('La plantilla no tiene hojas de trabajo');
 
-  // ── Bloque MOVIL ──────────────────────────────────────────────────────────
   ws.getCell(BLOQUE_MOVIL.celdaTipoActividad).value = `TIPO DE ACTIVIDAD: ${actividad.actividad}`;
   ws.getCell(BLOQUE_MOVIL.celdaCargo).value         = BLOQUE_MOVIL.cargoTexto;
   ws.getCell(BLOQUE_MOVIL.celdaUbicacion).value     = `UBICACIÓN: ${actividad.ubicacion}`;
@@ -212,31 +199,88 @@ async function generarArchivo(
   ws.getCell(BLOQUE_MOVIL.celdaGrupo).value         = `GRUPO:  ${grupo}`;
   rellenarTabla(ws, moviles.slice(0, BLOQUE_MOVIL.maxPersonas), BLOQUE_MOVIL.filaInicio, BLOQUE_MOVIL.maxPersonas);
 
-  // ── Bloque URBANO ─────────────────────────────────────────────────────────
-  // A29 = =A6  y  A32 = =A9  son fórmulas en la plantilla → NO se tocan
   ws.getCell(BLOQUE_URBANO.celdaTipoActividad).value = `TIPO DE ACTIVIDAD: ${actividad.actividad}`;
   ws.getCell(BLOQUE_URBANO.celdaCargo).value         = BLOQUE_URBANO.cargoTexto;
   ws.getCell(BLOQUE_URBANO.celdaFecha).value         = `FECHA: ${actividad.fecha}`;
   ws.getCell(BLOQUE_URBANO.celdaGrupo).value         = `GRUPO:  ${grupo}`;
   rellenarTabla(ws, urbanos.slice(0, BLOQUE_URBANO.maxPersonas), BLOQUE_URBANO.filaInicio, BLOQUE_URBANO.maxPersonas);
 
-  // ── Guardar ───────────────────────────────────────────────────────────────
-  const carpetaGrupo = path.join(outputDir, `grupo_${grupo.replace(/\s+/g, '_')}`);
-  await crearDirectorioSeguro(carpetaGrupo);
-
   const nombreArchivo = `${actividad.fecha}_${slugActividad(actividad.actividad)}.xlsx`;
-  await wb.xlsx.writeFile(path.join(carpetaGrupo, nombreArchivo));
+  const rutaXlsx = path.join(carpetaGrupo, nombreArchivo);
+  await wb.xlsx.writeFile(rutaXlsx);
+  return rutaXlsx;
+}
+
+// ====================== PDF — conversión y merge ======================
+
+/** Convierte un .xlsx a .pdf con LibreOffice. Devuelve la ruta del PDF generado. */
+function xlsxToPdf(xlsxPath: string, outputDir: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const pdfPath = path.join(outputDir, path.basename(xlsxPath, '.xlsx') + '.pdf');
+
+    const proc = spawn(CONFIG.SOFFICE_PATH, [
+      '--headless',
+      '--convert-to', 'pdf',
+      '--outdir', outputDir,
+      xlsxPath,
+    ], { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+
+    let stderr = '';
+    proc.stderr?.on('data', (d) => { stderr += d.toString(); });
+
+    proc.on('exit', async (code) => {
+      if (code !== 0) return reject(new Error(`LibreOffice falló (código ${code}): ${stderr}`));
+      try {
+        await fs.access(pdfPath);
+        resolve(pdfPath);
+      } catch {
+        reject(new Error(`PDF no generado en: ${pdfPath}`));
+      }
+    });
+
+    proc.on('error', (err) => reject(new Error(`Error ejecutando LibreOffice: ${err.message}`)));
+
+    // Timeout 60s
+    setTimeout(() => { proc.kill(); reject(new Error('Timeout convirtiendo a PDF')); }, 60_000);
+  });
+}
+
+/**
+ * Mergea una lista de PDFs (en el orden dado) en un solo PDF de salida.
+ * Usa pdf-lib que ya está en el proyecto.
+ */
+async function mergePdfs(rutasPdf: string[], rutaSalida: string): Promise<void> {
+  const mergeDoc = await PDFDocument.create();
+
+  for (const ruta of rutasPdf) {
+    const bytes  = await fs.readFile(ruta);
+    const srcDoc = await PDFDocument.load(bytes);
+    const pages  = await mergeDoc.copyPages(srcDoc, srcDoc.getPageIndices());
+    pages.forEach(p => mergeDoc.addPage(p));
+  }
+
+  const pdfBytes = await mergeDoc.save();
+  await fs.writeFile(rutaSalida, pdfBytes);
+}
+
+/** Elimina una lista de archivos ignorando errores individuales. */
+async function eliminarArchivos(rutas: string[]): Promise<void> {
+  await Promise.allSettled(rutas.map(r => fs.unlink(r)));
 }
 
 // ====================== ARGUMENTOS ======================
 
-interface Args { grupo: string | null; outputDir: string; }
+interface Args { grupo: string | null; outputDir: string; keepXlsx: boolean; }
 
 function parsearArgs(): Args {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) { mostrarAyuda(); process.exit(0); }
   const get = (flag: string) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : null; };
-  return { grupo: get('--grupo'), outputDir: get('--output') || OUTPUT_DEFAULT };
+  return {
+    grupo:    get('--grupo'),
+    outputDir: get('--output') || OUTPUT_DEFAULT,
+    keepXlsx: argv.includes('--keep-xlsx'),
+  };
 }
 
 function mostrarAyuda(): void {
@@ -245,22 +289,20 @@ function mostrarAyuda(): void {
 ║  📋 GENERADOR DE ASISTENCIA SIREPRE 2026                     ║
 ╚══════════════════════════════════════════════════════════════╝
 `));
-  console.log('Genera un Excel por grupo × actividad.');
-  console.log('  - Personas  → hoja "Hoja1"       (grupo, nombre, tipo URBANO/MOVIL)');
-  console.log('  - Actividades → hoja "Actividades" (Fecha | Actividad | Ubicacion)');
+  console.log('Genera un PDF unificado por grupo con todas las fechas en orden.');
   console.log('');
   console.log('USO:');
   console.log('  tsx generarAsistencia.ts');
   console.log('  tsx generarAsistencia.ts --grupo 26');
+  console.log('  tsx generarAsistencia.ts --keep-xlsx   → conserva los .xlsx intermedios');
   console.log('  tsx generarAsistencia.ts --output ./mi_salida');
   console.log('');
   console.log('ESTRUCTURA DE SALIDA:');
   console.log('  asistencia_generada/');
   console.log('    grupo_1/');
-  console.log('      11-03-2026_SIMULACRO_NACIONAL_SIREPRE.xlsx');
-  console.log('      12-03-2026_Prueba_local_SIREPRE.xlsx');
+  console.log('      grupo_1.pdf    ← todas las fechas en orden');
   console.log('    grupo_26/');
-  console.log('      11-03-2026_SIMULACRO_NACIONAL_SIREPRE.xlsx');
+  console.log('      grupo_26.pdf');
 }
 
 // ====================== MAIN ======================
@@ -268,22 +310,21 @@ function mostrarAyuda(): void {
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n📋 GENERADOR DE ASISTENCIA SIREPRE 2026\n'));
 
-  const { grupo, outputDir } = parsearArgs();
-  if (grupo) Logger.info(`Grupo:  ${grupo}`);
-  Logger.info(`Salida: ${outputDir}\n`);
+  const { grupo, outputDir, keepXlsx } = parsearArgs();
+  if (grupo)    Logger.info(`Grupo:      ${grupo}`);
+  if (keepXlsx) Logger.info('Modo:       conservando .xlsx intermedios');
+  Logger.info(`Salida:     ${outputDir}\n`);
 
-  // 1. Obtener personas y actividades en paralelo
+  // 1. Obtener datos
   Logger.progress('Conectando con Google Sheets...');
   let personas: Persona[];
   let actividades: Actividad[];
-
   try {
     [personas, actividades] = await Promise.all([obtenerPersonas(), obtenerActividades()]);
   } catch (err) {
     Logger.error(`Error leyendo Google Sheets: ${err}`);
     process.exit(1);
   }
-
   Logger.success(`Personas: ${personas.length}  |  Actividades: ${actividades.length}`);
 
   if (actividades.length === 0) {
@@ -291,13 +332,16 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // 2. Filtrar por grupo si se indicó
+  // Ordenar actividades cronológicamente por fecha
+  actividades.sort((a, b) => fechaParaOrdenar(a.fecha).localeCompare(fechaParaOrdenar(b.fecha)));
+
+  // 2. Filtrar por grupo
   if (grupo) {
     personas = personas.filter(p => p.grupo?.toString().trim() === grupo.trim());
     if (personas.length === 0) { Logger.error(`No hay personas en el grupo "${grupo}"`); process.exit(1); }
   }
 
-  // 3. Agrupar personas por número de grupo
+  // 3. Agrupar personas
   const porGrupo = new Map<string, Persona[]>();
   for (const p of personas) {
     const g = (p.grupo || 'SIN_GRUPO').toString().trim();
@@ -305,10 +349,9 @@ async function main(): Promise<void> {
     porGrupo.get(g)!.push(p);
   }
 
-  const totalArchivos = porGrupo.size * actividades.length;
-  Logger.info(`Grupos: ${porGrupo.size}  ×  Actividades: ${actividades.length}  =  ${totalArchivos} archivos\n`);
+  Logger.info(`Grupos: ${porGrupo.size}  ×  Actividades: ${actividades.length}  =  ${porGrupo.size * actividades.length} hojas\n`);
 
-  // 4. Generar grupo × actividad
+  // 4. Procesar grupo por grupo
   let exitosos = 0;
   let errores  = 0;
 
@@ -318,29 +361,70 @@ async function main(): Promise<void> {
     const sinTipo = miembros.filter(p => normalizarTipo(p.tipo) === null);
 
     console.log(chalk.bold(`\n📁 grupo_${g}/  (${moviles.length}M + ${urbanos.length}U${sinTipo.length ? ` + ${sinTipo.length} sin tipo` : ''})`));
-    if (sinTipo.length) {
-      sinTipo.forEach(p => Logger.warn(`   ⚠️  Sin tipo reconocido: ${p.nombre} ${p.apellido1} — "${p.tipo}"`));
-    }
+    if (sinTipo.length) sinTipo.forEach(p => Logger.warn(`   ⚠️  Sin tipo: ${p.nombre} ${p.apellido1} — "${p.tipo}"`));
 
+    const carpetaGrupo = path.join(outputDir, `grupo_${g.replace(/\s+/g, '_')}`);
+    await crearDirectorioSeguro(carpetaGrupo);
+
+    const rutasPdfIntermedios: string[] = [];
+    const rutasXlsxIntermedios: string[] = [];
+    let errorEnGrupo = false;
+
+    // 4a. Generar xlsx + convertir a PDF por cada actividad
     for (const act of actividades) {
-      const nombreArchivo = `${act.fecha}_${slugActividad(act.actividad)}.xlsx`;
+      const etiqueta = `${act.fecha} — ${act.actividad.substring(0, 35)}`;
       try {
-        await generarArchivo(moviles, urbanos, g, act, outputDir);
-        console.log(`   ✅ ${nombreArchivo}`);
-        exitosos++;
+        // xlsx
+        const rutaXlsx = await generarXlsx(moviles, urbanos, g, act, carpetaGrupo);
+        rutasXlsxIntermedios.push(rutaXlsx);
+
+        // pdf
+        process.stdout.write(`   🔄 ${etiqueta} → PDF...`);
+        const rutaPdf = await xlsxToPdf(rutaXlsx, carpetaGrupo);
+        rutasPdfIntermedios.push(rutaPdf);
+        process.stdout.write(' ✅\n');
+
       } catch (err) {
-        console.log(`   ❌ ${nombreArchivo} — ${err}`);
-        errores++;
+        process.stdout.write('\n');
+        Logger.error(`   ❌ ${etiqueta}: ${err}`);
+        errorEnGrupo = true;
       }
     }
+
+    if (rutasPdfIntermedios.length === 0) {
+      Logger.error(`   Sin PDFs generados para grupo ${g}`);
+      errores++;
+      continue;
+    }
+
+    // 4b. Mergear todos los PDFs del grupo en uno solo (ya están ordenados por fecha)
+    const rutaPdfFinal = path.join(carpetaGrupo, `grupo_${g.replace(/\s+/g, '_')}.pdf`);
+    try {
+      process.stdout.write(`   📎 Mergeando ${rutasPdfIntermedios.length} PDFs → grupo_${g}.pdf...`);
+      await mergePdfs(rutasPdfIntermedios, rutaPdfFinal);
+      process.stdout.write(' ✅\n');
+      Logger.success(`   📄 grupo_${g}.pdf  (${rutasPdfIntermedios.length} fechas)`);
+      exitosos++;
+    } catch (err) {
+      process.stdout.write('\n');
+      Logger.error(`   ❌ Error mergeando PDFs del grupo ${g}: ${err}`);
+      errores++;
+      errorEnGrupo = true;
+    }
+
+    // 4c. Limpiar archivos intermedios
+    await eliminarArchivos(rutasPdfIntermedios);
+    if (!keepXlsx) await eliminarArchivos(rutasXlsxIntermedios);
+
+    if (errorEnGrupo) errores++;
   }
 
   // 5. Resumen
   Logger.separador();
   console.log(chalk.bold('\n📊 RESUMEN'));
-  console.log(`✅ Generados: ${exitosos} / ${totalArchivos}`);
-  if (errores) console.log(`❌ Errores:   ${errores}`);
-  console.log(`📂 En:        ${outputDir}`);
+  console.log(`✅ PDFs unificados: ${exitosos} / ${porGrupo.size}`);
+  if (errores) console.log(`❌ Grupos con error: ${errores}`);
+  console.log(`📂 En: ${outputDir}`);
 
   process.exit(errores > 0 ? 1 : 0);
 }
