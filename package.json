@@ -4,7 +4,7 @@
   "description": "Generador masivo de documentos desde Google Sheets con plantillas Word/Excel",
   "main": "dist/generar.js",
   "type": "module",
-  "scripts": {
+    "scripts": {
     "dev": "tsx generar.ts",
     "build": "tsc",
     "start": "node dist/generar.js",
