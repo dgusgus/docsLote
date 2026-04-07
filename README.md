@@ -462,3 +462,9 @@ pnpm run dev -- rango --inicio 1 --fin 3 --tipo ambos
 # 4. Si todo está bien, procesar todos
 pnpm run dev -- todos --tipo solo-pdf
 ```
+
+asistencia generar
+pnpm run asistencia -- --grupo 26 --tipo todos
+pnpm run asistencia -- --grupo 26 --tipo solo-excel
+pnpm run asistencia -- --grupo 26 --tipo solo-pdf
+pnpm run asistencia -- --grupo 26 --tipo solo-merged

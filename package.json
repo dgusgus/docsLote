@@ -15,8 +15,10 @@
     "qr:ayuda": "tsx generarQR.ts --help",
     "asistencia": "tsx generarAsistencia.ts",
     "asistencia:ayuda": "tsx generarAsistencia.ts --help",
+    "asistencia:excel": "tsx generarAsistencia.ts --tipo solo-excel",
     "asistencia:pdf": "tsx generarAsistencia.ts --tipo solo-pdf",
-    "asistencia:excel": "tsx generarAsistencia.ts --tipo solo-excel"
+    "asistencia:merged": "tsx generarAsistencia.ts --tipo solo-merged",
+    "asistencia:todos": "tsx generarAsistencia.ts --tipo todos"
   },
   "keywords": [
     "documentos",
@@ -26,7 +28,7 @@
     "excel",
     "pdf"
   ],
-  "author": "Tu Nombre",
+  "author": "Dgusgus",
   "license": "MIT",
   "dependencies": {
     "chalk": "^5.3.0",

@@ -42,25 +42,27 @@ export const CONFIG: ConfiguracionApp = {
       qr: true,
     },
     {
-      nombre: "Registro de asistencia OPERADORES",
-      archivo: join(projectRoot, "plantillas/Registro de asistencia OPERADORES.xlsx"),
-      tipo: "excel",
-      descripcion: "Registro de asistencia para operadores",
+      nombre: "Carta de presentacion",
+      archivo: join(projectRoot, "plantillas/Documento1.docx"),
+      tipo: "word",
+      descripcion: "Carta de presentacion de documentos",
       qr: false,  // 👈 este NO lleva QR
     },
-      /* 
     {
-      nombre: "evaluacion",
-      archivo: join(projectRoot, "plantillas/evaluacion.xlsx"),
-      tipo: "excel",
-      descripcion: "Formulario de evaluación"
-    },
-    {
-      nombre: "registro_asistencia",
-      archivo: join(projectRoot, "plantillas/asistencia.xlsx"),
-      tipo: "excel",
-      descripcion: "Registro de asistencia"
-    },
+      nombre: "Declaracion Jurada de no impedimento",
+      archivo: join(projectRoot, "plantillas/Documento2.docx"),
+      tipo: "word",
+      descripcion: "Declaracion Jurada de no impedimento para contratar con el estado",
+      qr: false,
+      },
+      {
+        nombre: "Retencion de impuestos",
+        archivo: join(projectRoot, "plantillas/Documento3.docx"),
+        tipo: "word",
+        descripcion: "Retencion de impuestos para personas naturales",
+        qr: false
+      },
+        /* 
     {
       nombre: "carta_recomendacion",
       archivo: join(projectRoot, "plantillas/recomendacion.docx"),

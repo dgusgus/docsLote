@@ -7,23 +7,28 @@
  *   - Hoja "Hoja1"       → personas: grupo, nombre, apellidos, tipo (URBANO/MOVIL)
  *   - Hoja "Actividades" → eventos:  columna A=Fecha, B=Actividad, C=Ubicacion
  *
- * Flujo por cada grupo:
- *   1. Genera un .xlsx por actividad  →  grupo_1/11-03-2026_SIMULACRO.xlsx
- *   2. Convierte cada .xlsx a .pdf    →  grupo_1/11-03-2026_SIMULACRO.pdf  (temporal)
- *   3. Mergea todos los PDFs ordenados por fecha → grupo_1/grupo_1.pdf
- *   4. Elimina los PDFs intermedios y los xlsx
+ * Flujo por cada grupo (según --tipo):
+ *   solo-excel   → genera .xlsx por actividad, termina (sin PDF)
+ *   solo-pdf     → genera .xlsx → convierte cada uno a .pdf → borra .xlsx
+ *   solo-merged  → genera .xlsx → convierte a .pdf → mergea en uno → borra intermedios  [DEFAULT]
+ *   todos        → genera .xlsx + .pdf individuales + .pdf mergeado (conserva todo)
  *
  * ESTRUCTURA DE SALIDA:
  *   asistencia_generada/
  *     grupo_1/
- *       grupo_1.pdf        ← todas las fechas en orden
+ *       11-03-2026_SIMULACRO.xlsx          ← si tipo incluye excel
+ *       11-03-2026_SIMULACRO.pdf           ← si tipo incluye pdfs individuales
+ *       grupo_1.pdf                        ← si tipo incluye merged
  *     grupo_26/
- *       grupo_26.pdf
+ *       ...
  *
  * USO:
  *   tsx generarAsistencia.ts
  *   tsx generarAsistencia.ts --grupo 26
- *   tsx generarAsistencia.ts --keep-xlsx      → conserva los .xlsx generados
+ *   tsx generarAsistencia.ts --tipo solo-excel
+ *   tsx generarAsistencia.ts --tipo solo-pdf
+ *   tsx generarAsistencia.ts --tipo solo-merged      ← comportamiento por defecto
+ *   tsx generarAsistencia.ts --tipo todos
  *   tsx generarAsistencia.ts --output ./salida
  *   tsx generarAsistencia.ts --help
  */
@@ -45,6 +50,25 @@ const __dirname  = path.dirname(__filename);
 
 const PLANTILLA_PATH = path.join(__dirname, 'plantillas/LISTAS DE ASISTENCIA SIREPRE 2026.xlsx');
 const OUTPUT_DEFAULT = path.join(__dirname, 'asistencia_generada');
+
+// ====================== TIPOS DE SALIDA ======================
+
+type TipoAsistencia = 'solo-excel' | 'solo-pdf' | 'solo-merged' | 'todos';
+
+/**
+ * Qué pasos se ejecutan según el tipo elegido:
+ *
+ *              xlsx   pdf_ind   merged
+ * solo-excel    ✓       ✗         ✗
+ * solo-pdf      ✓→del   ✓         ✗
+ * solo-merged   ✓→del   ✓→del     ✓   (comportamiento original)
+ * todos         ✓       ✓         ✓
+ */
+function debeGenerarExcel(tipo: TipoAsistencia)  { return true; } // siempre se necesita como paso 1
+function debeBorrarExcel(tipo: TipoAsistencia)   { return tipo === 'solo-pdf' || tipo === 'solo-merged'; }
+function debeGenerarPDF(tipo: TipoAsistencia)    { return tipo !== 'solo-excel'; }
+function debeMergear(tipo: TipoAsistencia)        { return tipo === 'solo-merged' || tipo === 'todos'; }
+function debeBorrarPDFInd(tipo: TipoAsistencia)  { return tipo === 'solo-merged'; }
 
 // ====================== MAPA DE CELDAS ======================
 
@@ -134,7 +158,6 @@ function normalizarFecha(str: string): string {
   return str.replace(/\//g, '-');
 }
 
-/** DD-MM-YYYY → YYYY-MM-DD para ordenar cronológicamente */
 function fechaParaOrdenar(fechaDDMMYYYY: string): string {
   const [dd, mm, yyyy] = fechaDDMMYYYY.split('-');
   return `${yyyy}-${mm}-${dd}`;
@@ -181,10 +204,10 @@ function rellenarTabla(
 }
 
 async function generarXlsx(
-  moviles:     Persona[],
-  urbanos:     Persona[],
-  grupo:       string,
-  actividad:   Actividad,
+  moviles:      Persona[],
+  urbanos:      Persona[],
+  grupo:        string,
+  actividad:    Actividad,
   carpetaGrupo: string
 ): Promise<string> {
   const wb = new ExcelJS.Workbook();
@@ -213,7 +236,6 @@ async function generarXlsx(
 
 // ====================== PDF — conversión y merge ======================
 
-/** Convierte un .xlsx a .pdf con LibreOffice. Devuelve la ruta del PDF generado. */
 function xlsxToPdf(xlsxPath: string, outputDir: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const pdfPath = path.join(outputDir, path.basename(xlsxPath, '.xlsx') + '.pdf');
@@ -239,47 +261,60 @@ function xlsxToPdf(xlsxPath: string, outputDir: string): Promise<string> {
     });
 
     proc.on('error', (err) => reject(new Error(`Error ejecutando LibreOffice: ${err.message}`)));
-
-    // Timeout 60s
     setTimeout(() => { proc.kill(); reject(new Error('Timeout convirtiendo a PDF')); }, 60_000);
   });
 }
 
-/**
- * Mergea una lista de PDFs (en el orden dado) en un solo PDF de salida.
- * Usa pdf-lib que ya está en el proyecto.
- */
 async function mergePdfs(rutasPdf: string[], rutaSalida: string): Promise<void> {
   const mergeDoc = await PDFDocument.create();
-
   for (const ruta of rutasPdf) {
     const bytes  = await fs.readFile(ruta);
     const srcDoc = await PDFDocument.load(bytes);
     const pages  = await mergeDoc.copyPages(srcDoc, srcDoc.getPageIndices());
     pages.forEach(p => mergeDoc.addPage(p));
   }
-
   const pdfBytes = await mergeDoc.save();
   await fs.writeFile(rutaSalida, pdfBytes);
 }
 
-/** Elimina una lista de archivos ignorando errores individuales. */
 async function eliminarArchivos(rutas: string[]): Promise<void> {
   await Promise.allSettled(rutas.map(r => fs.unlink(r)));
 }
 
 // ====================== ARGUMENTOS ======================
 
-interface Args { grupo: string | null; outputDir: string; keepXlsx: boolean; }
+interface Args {
+  grupo:     string | null;
+  outputDir: string;
+  tipo:      TipoAsistencia;
+}
 
 function parsearArgs(): Args {
   const argv = process.argv.slice(2);
   if (argv.includes('--help') || argv.includes('-h')) { mostrarAyuda(); process.exit(0); }
-  const get = (flag: string) => { const i = argv.indexOf(flag); return i !== -1 && argv[i + 1] ? argv[i + 1] : null; };
+
+  const get = (flag: string) => {
+    const i = argv.indexOf(flag);
+    return i !== -1 && argv[i + 1] ? argv[i + 1] : null;
+  };
+
+  // Validar --tipo
+  const tiposValidos: TipoAsistencia[] = ['solo-excel', 'solo-pdf', 'solo-merged', 'todos'];
+  const tipoRaw = get('--tipo');
+  let tipo: TipoAsistencia = 'solo-merged'; // default igual al comportamiento original
+
+  if (tipoRaw) {
+    if (!tiposValidos.includes(tipoRaw as TipoAsistencia)) {
+      console.error(chalk.red(`❌ Tipo inválido: "${tipoRaw}". Opciones: ${tiposValidos.join(', ')}`));
+      process.exit(1);
+    }
+    tipo = tipoRaw as TipoAsistencia;
+  }
+
   return {
-    grupo:    get('--grupo'),
+    grupo:     get('--grupo'),
     outputDir: get('--output') || OUTPUT_DEFAULT,
-    keepXlsx: argv.includes('--keep-xlsx'),
+    tipo,
   };
 }
 
@@ -289,20 +324,36 @@ function mostrarAyuda(): void {
 ║  📋 GENERADOR DE ASISTENCIA SIREPRE 2026                     ║
 ╚══════════════════════════════════════════════════════════════╝
 `));
-  console.log('Genera un PDF unificado por grupo con todas las fechas en orden.');
+  console.log('Genera registros de asistencia por grupo y actividad.');
   console.log('');
-  console.log('USO:');
+  console.log(chalk.bold('USO:'));
+  console.log('  tsx generarAsistencia.ts [opciones]');
+  console.log('');
+  console.log(chalk.bold('OPCIONES:'));
+  console.log('  --grupo  <n>           Procesar solo ese grupo (ej: --grupo 26)');
+  console.log('  --output <carpeta>     Carpeta de salida (default: asistencia_generada/)');
+  console.log('  --tipo   <modo>        Qué archivos generar (ver abajo)');
+  console.log('  --help                 Muestra esta ayuda');
+  console.log('');
+  console.log(chalk.bold('MODOS DE --tipo:'));
+  console.log(`  ${chalk.cyan('solo-excel')}    → Solo los .xlsx por fecha (sin PDF)`);
+  console.log(`  ${chalk.cyan('solo-pdf')}      → Un .pdf por fecha (borra los .xlsx)`);
+  console.log(`  ${chalk.cyan('solo-merged')}   → Un único .pdf por grupo con todas las fechas  ${chalk.gray('[DEFAULT]')}`);
+  console.log(`  ${chalk.cyan('todos')}         → .xlsx + .pdf por fecha + .pdf unificado`);
+  console.log('');
+  console.log(chalk.bold('EJEMPLOS:'));
   console.log('  tsx generarAsistencia.ts');
-  console.log('  tsx generarAsistencia.ts --grupo 26');
-  console.log('  tsx generarAsistencia.ts --keep-xlsx   → conserva los .xlsx intermedios');
-  console.log('  tsx generarAsistencia.ts --output ./mi_salida');
+  console.log('  tsx generarAsistencia.ts --grupo 26 --tipo solo-excel');
+  console.log('  tsx generarAsistencia.ts --tipo todos --output ./mi_salida');
   console.log('');
-  console.log('ESTRUCTURA DE SALIDA:');
+  console.log(chalk.bold('ESTRUCTURA DE SALIDA (--tipo todos):'));
   console.log('  asistencia_generada/');
-  console.log('    grupo_1/');
-  console.log('      grupo_1.pdf    ← todas las fechas en orden');
   console.log('    grupo_26/');
-  console.log('      grupo_26.pdf');
+  console.log('      11-03-2026_SIMULACRO.xlsx');
+  console.log('      11-03-2026_SIMULACRO.pdf');
+  console.log('      25-03-2026_CAPACITACION.xlsx');
+  console.log('      25-03-2026_CAPACITACION.pdf');
+  console.log('      grupo_26.pdf   ← todas las fechas unidas');
 }
 
 // ====================== MAIN ======================
@@ -310,10 +361,21 @@ function mostrarAyuda(): void {
 async function main(): Promise<void> {
   console.log(chalk.bold.cyan('\n📋 GENERADOR DE ASISTENCIA SIREPRE 2026\n'));
 
-  const { grupo, outputDir, keepXlsx } = parsearArgs();
-  if (grupo)    Logger.info(`Grupo:      ${grupo}`);
-  if (keepXlsx) Logger.info('Modo:       conservando .xlsx intermedios');
-  Logger.info(`Salida:     ${outputDir}\n`);
+  const { grupo, outputDir, tipo } = parsearArgs();
+
+  // Mostrar configuración activa
+  Logger.info(`Modo:       ${chalk.cyan(tipo)}`);
+  if (grupo) Logger.info(`Grupo:      ${grupo}`);
+  Logger.info(`Salida:     ${outputDir}`);
+
+  // Explicar qué va a generar
+  const explicacion: Record<TipoAsistencia, string> = {
+    'solo-excel':  'Solo archivos Excel (.xlsx) por fecha',
+    'solo-pdf':    'Un PDF por fecha (sin conservar Excel)',
+    'solo-merged': 'Un PDF unificado por grupo con todas las fechas',
+    'todos':       'Excel + PDF por fecha + PDF unificado por grupo',
+  };
+  Logger.info(`Genera:     ${explicacion[tipo]}\n`);
 
   // 1. Obtener datos
   Logger.progress('Conectando con Google Sheets...');
@@ -332,7 +394,7 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  // Ordenar actividades cronológicamente por fecha
+  // Ordenar actividades cronológicamente
   actividades.sort((a, b) => fechaParaOrdenar(a.fecha).localeCompare(fechaParaOrdenar(b.fecha)));
 
   // 2. Filtrar por grupo
@@ -351,7 +413,18 @@ async function main(): Promise<void> {
 
   Logger.info(`Grupos: ${porGrupo.size}  ×  Actividades: ${actividades.length}  =  ${porGrupo.size * actividades.length} hojas\n`);
 
-  // 4. Procesar grupo por grupo
+  // 4. Verificar LibreOffice si se necesita PDF
+  if (debeGenerarPDF(tipo)) {
+    try {
+      await fs.access(CONFIG.SOFFICE_PATH);
+    } catch {
+      Logger.error(`LibreOffice no encontrado en: ${CONFIG.SOFFICE_PATH}`);
+      Logger.info('   Instalá LibreOffice o usá --tipo solo-excel para evitar la conversión PDF');
+      process.exit(1);
+    }
+  }
+
+  // 5. Procesar grupo por grupo
   let exitosos = 0;
   let errores  = 0;
 
@@ -360,71 +433,103 @@ async function main(): Promise<void> {
     const urbanos = miembros.filter(p => normalizarTipo(p.tipo) === 'URBANO');
     const sinTipo = miembros.filter(p => normalizarTipo(p.tipo) === null);
 
-    console.log(chalk.bold(`\n📁 grupo_${g}/  (${moviles.length}M + ${urbanos.length}U${sinTipo.length ? ` + ${sinTipo.length} sin tipo` : ''})`));
+    console.log(chalk.bold(`\n📁 grupo_${g}/  (${moviles.length} móvil + ${urbanos.length} urbano${sinTipo.length ? ` + ${sinTipo.length} sin tipo` : ''})`));
     if (sinTipo.length) sinTipo.forEach(p => Logger.warn(`   ⚠️  Sin tipo: ${p.nombre} ${p.apellido1} — "${p.tipo}"`));
 
     const carpetaGrupo = path.join(outputDir, `grupo_${g.replace(/\s+/g, '_')}`);
     await crearDirectorioSeguro(carpetaGrupo);
 
-    const rutasPdfIntermedios: string[] = [];
-    const rutasXlsxIntermedios: string[] = [];
+    const rutasXlsx:   string[] = [];
+    const rutasPdfInd: string[] = [];
     let errorEnGrupo = false;
 
-    // 4a. Generar xlsx + convertir a PDF por cada actividad
+    // 5a. Generar xlsx por actividad
     for (const act of actividades) {
       const etiqueta = `${act.fecha} — ${act.actividad.substring(0, 35)}`;
       try {
-        // xlsx
         const rutaXlsx = await generarXlsx(moviles, urbanos, g, act, carpetaGrupo);
-        rutasXlsxIntermedios.push(rutaXlsx);
-
-        // pdf
-        process.stdout.write(`   🔄 ${etiqueta} → PDF...`);
-        const rutaPdf = await xlsxToPdf(rutaXlsx, carpetaGrupo);
-        rutasPdfIntermedios.push(rutaPdf);
-        process.stdout.write(' ✅\n');
-
+        rutasXlsx.push(rutaXlsx);
+        Logger.success(`   📊 ${etiqueta} → xlsx`);
       } catch (err) {
-        process.stdout.write('\n');
-        Logger.error(`   ❌ ${etiqueta}: ${err}`);
+        Logger.error(`   ❌ ${etiqueta} (excel): ${err}`);
         errorEnGrupo = true;
       }
     }
 
-    if (rutasPdfIntermedios.length === 0) {
-      Logger.error(`   Sin PDFs generados para grupo ${g}`);
+    if (rutasXlsx.length === 0) {
+      Logger.error(`   Sin Excel generados para grupo ${g}`);
       errores++;
       continue;
     }
 
-    // 4b. Mergear todos los PDFs del grupo en uno solo (ya están ordenados por fecha)
+    // Si solo queremos Excel, terminamos aquí para este grupo
+    if (!debeGenerarPDF(tipo)) {
+      Logger.success(`   ✅ ${rutasXlsx.length} archivo(s) Excel generado(s)`);
+      exitosos++;
+      continue;
+    }
+
+    // 5b. Convertir xlsx → pdf
+    for (const rutaXlsx of rutasXlsx) {
+      const etiqueta = path.basename(rutaXlsx, '.xlsx');
+      try {
+        process.stdout.write(`   🔄 ${etiqueta} → PDF...`);
+        const rutaPdf = await xlsxToPdf(rutaXlsx, carpetaGrupo);
+        rutasPdfInd.push(rutaPdf);
+        process.stdout.write(' ✅\n');
+      } catch (err) {
+        process.stdout.write('\n');
+        Logger.error(`   ❌ ${etiqueta} (pdf): ${err}`);
+        errorEnGrupo = true;
+      }
+    }
+
+    // Borrar xlsx si el tipo lo pide
+    if (debeBorrarExcel(tipo)) {
+      await eliminarArchivos(rutasXlsx);
+    }
+
+    // Si solo queremos pdfs individuales, terminamos aquí
+    if (!debeMergear(tipo)) {
+      Logger.success(`   ✅ ${rutasPdfInd.length} PDF(s) individual(es) generado(s)`);
+      if (!errorEnGrupo) exitosos++;
+      continue;
+    }
+
+    // 5c. Mergear todos los PDFs en uno
+    if (rutasPdfInd.length === 0) {
+      Logger.error(`   Sin PDFs individuales para mergear en grupo ${g}`);
+      errores++;
+      continue;
+    }
+
     const rutaPdfFinal = path.join(carpetaGrupo, `grupo_${g.replace(/\s+/g, '_')}.pdf`);
     try {
-      process.stdout.write(`   📎 Mergeando ${rutasPdfIntermedios.length} PDFs → grupo_${g}.pdf...`);
-      await mergePdfs(rutasPdfIntermedios, rutaPdfFinal);
+      process.stdout.write(`   📎 Uniendo ${rutasPdfInd.length} PDF(s) → grupo_${g}.pdf...`);
+      await mergePdfs(rutasPdfInd, rutaPdfFinal);
       process.stdout.write(' ✅\n');
-      Logger.success(`   📄 grupo_${g}.pdf  (${rutasPdfIntermedios.length} fechas)`);
-      exitosos++;
+      Logger.success(`   📄 grupo_${g}.pdf  (${rutasPdfInd.length} fechas)`);
+      if (!errorEnGrupo) exitosos++;
     } catch (err) {
       process.stdout.write('\n');
-      Logger.error(`   ❌ Error mergeando PDFs del grupo ${g}: ${err}`);
+      Logger.error(`   ❌ Error mergeando grupo ${g}: ${err}`);
       errores++;
       errorEnGrupo = true;
     }
 
-    // 4c. Limpiar archivos intermedios
-    await eliminarArchivos(rutasPdfIntermedios);
-    if (!keepXlsx) await eliminarArchivos(rutasXlsxIntermedios);
-
-    if (errorEnGrupo) errores++;
+    // Borrar PDFs individuales si el tipo lo pide (solo-merged)
+    if (debeBorrarPDFInd(tipo)) {
+      await eliminarArchivos(rutasPdfInd);
+    }
   }
 
-  // 5. Resumen
+  // 6. Resumen
   Logger.separador();
   console.log(chalk.bold('\n📊 RESUMEN'));
-  console.log(`✅ PDFs unificados: ${exitosos} / ${porGrupo.size}`);
+  console.log(`✅ Grupos completados: ${exitosos} / ${porGrupo.size}`);
   if (errores) console.log(`❌ Grupos con error: ${errores}`);
-  console.log(`📂 En: ${outputDir}`);
+  console.log(`📂 Archivos en: ${outputDir}`);
+  console.log(`📋 Tipo generado: ${tipo}`);
 
   process.exit(errores > 0 ? 1 : 0);
 }
